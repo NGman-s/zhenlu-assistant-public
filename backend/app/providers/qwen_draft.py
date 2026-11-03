@@ -108,6 +108,11 @@ class QwenDraftProvider:
                         raise DraftProviderError("draft_rate_limited", "模型服务暂时限流，请稍后重试。")
                     if response.status_code >= 500:
                         raise DraftProviderError("draft_upstream_error", "模型服务暂时不可用，请稍后重试。")
+                    if response.status_code == 400 and _invalid_workspace_endpoint(response):
+                        raise DraftProviderError(
+                            "draft_workspace_invalid",
+                            "百炼业务空间接口地址无效，请检查接口地址、地域和业务空间配置。",
+                        )
                     if response.status_code != 200:
                         raise DraftProviderError("draft_request_failed", "模型请求未被接受，请检查接口地址、模型及参数配置。")
                     chunks: list[bytes] = []
@@ -138,6 +143,23 @@ class QwenDraftProvider:
             fields=fields, provider=self.name, is_mock=False,
             notice="大模型根据输入文本整理的草稿，必须由医生核对内容和原文来源。",
         )
+
+
+def _invalid_workspace_endpoint(response: httpx.Response) -> bool:
+    """Recognize a known configuration error without exposing response contents."""
+    try:
+        data = bytearray()
+        for chunk in response.iter_bytes():
+            data.extend(chunk)
+            if len(data) > 65536:
+                return False
+        body = json.loads(data)
+        if not isinstance(body, dict):
+            return False
+        error = body.get("error", body)
+        return isinstance(error, dict) and str(error.get("message", "")).strip() == "Workspace endpoint is invalid."
+    except (ValueError, TypeError, httpx.HTTPError):
+        return False
 
 
 def _parse_fields(data: object, valid_ids: set[str]) -> tuple[GeneratedField, ...]:

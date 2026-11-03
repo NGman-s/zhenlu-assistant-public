@@ -9,13 +9,13 @@
 
 ```ini
 ZHENLU_DRAFT_PROVIDER=qwen
-ZHENLU_QWEN_BASE_URL=https://<实际业务空间ID>.cn-beijing.maas.aliyuncs.com/compatible-mode/v1
+ZHENLU_QWEN_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 ZHENLU_QWEN_MODEL=qwen3.7-plus
 ZHENLU_QWEN_API_KEY=<本机填写密钥>
 ZHENLU_QWEN_TIMEOUT_SECONDS=120
 ```
 
-模型也可设为 `qwen3.8-flash`。本示例为北京地域格式，请以百炼控制台实际提供的地址为准，替换尖括号内容。服务端会追加 `/chat/completions`，也接受完整的 Chat Completions 地址。远程地址要求 HTTPS；仅本机测试允许 HTTP。要恢复离线演示，将 `ZHENLU_DRAFT_PROVIDER` 改回 `mock` 并重启后端。
+模型也可设为 `qwen3.8-flash`。本示例使用百炼北京地域的 DashScope 兼容地址；密钥须属于同一地域。也可使用控制台“业务空间管理”中提供的专属 API Host，但要复制完整域名，而不是自行拼写空间名称。服务端会追加 `/chat/completions`，也接受完整的 Chat Completions 地址。远程地址要求 HTTPS；仅本机测试允许 HTTP。要恢复离线演示，将 `ZHENLU_DRAFT_PROVIDER` 改回 `mock` 并重启后端。
 
 3. 启动后端及前端，创建虚构会话，点击“手动录入问诊内容”，每行输入一段，保存后点击“生成病历草稿”。音频可选。生成前界面会提示问诊文字将发送给模型服务。
 

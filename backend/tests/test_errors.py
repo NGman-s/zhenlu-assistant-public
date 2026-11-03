@@ -123,6 +123,9 @@ def test_upload_validation_and_duplicate_audio(client: TestClient) -> None:
 
 def test_oversized_audio_is_rejected(tmp_path: Path) -> None:
     settings = Settings(
+        _env_file=None,
+        asr_provider="mock",
+        draft_provider="mock",
         database_url=f"sqlite:///{(tmp_path / 'large.db').as_posix()}",
         upload_dir=tmp_path / "uploads",
         sample_data_dir=SAMPLE_DATA_DIR,

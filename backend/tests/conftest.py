@@ -23,6 +23,9 @@ def quiet_http_logs() -> None:
 @pytest.fixture
 def settings(tmp_path: Path) -> Settings:
     return Settings(
+        _env_file=None,
+        asr_provider="mock",
+        draft_provider="mock",
         database_url=f"sqlite:///{(tmp_path / 'test.db').as_posix()}",
         upload_dir=tmp_path / "uploads",
         sample_data_dir=SAMPLE_DATA_DIR,

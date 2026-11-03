@@ -82,6 +82,18 @@ def test_failed_first_generation_can_retry(client: TestClient) -> None:
     assert client.post(f"/api/sessions/{sid}/draft").status_code == 200
 
 
+def test_workspace_endpoint_error_is_actionable_and_does_not_leak(client: TestClient) -> None:
+    response = {"error": {"message": "Workspace endpoint is invalid.", "code": "invalid_parameter_error"}}
+    client.app.state.draft_provider = provider(lambda req: httpx.Response(400, json=response))
+    sid = client.post("/api/sessions", json={"patient_name": "虚构称呼"}).json()["id"]
+    client.post(f"/api/sessions/{sid}/transcript/manual", json={"text": "患者咳嗽三天。"})
+    result = client.post(f"/api/sessions/{sid}/draft")
+    assert result.status_code == 502
+    assert result.json()["code"] == "draft_workspace_invalid"
+    assert "业务空间接口地址无效" in result.json()["message"]
+    assert "test-secret" not in result.text
+
+
 def test_rejects_missing_source_truncation_and_timeout() -> None:
     transcript = TranscriptDocument("1", (TranscriptSegmentData("s1", 0, "患者", "测试"),))
     for response in [
