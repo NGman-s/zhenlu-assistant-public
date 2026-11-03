@@ -11,6 +11,10 @@ desktop/device-public.der
 *.pem
 *.key
 
+# 本地保留的项目方案
+/诊录助手产品设计方案.md
+/诊录助手项目方案概要.md
+
 # 本地数据（数据库与上传音频，不提交）
 backend/data/*
 !backend/data/uploads/
