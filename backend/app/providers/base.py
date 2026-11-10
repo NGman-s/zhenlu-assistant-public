@@ -13,6 +13,8 @@ class TranscriptSegmentData:
     text: str
     start_ms: int | None = None
     end_ms: int | None = None
+    role: str | None = None
+    role_basis: str | None = None
 
 
 @dataclass(frozen=True)
@@ -53,6 +55,7 @@ class DraftResult:
     provider: str
     is_mock: bool
     notice: str
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 class TranscriptionProvider(Protocol):

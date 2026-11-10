@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 
 from sqlalchemy import update
 from sqlalchemy.orm import Session
@@ -28,15 +29,16 @@ from app.models import (
 from app.providers.base import (
     DraftGenerationProvider,
     DraftResult,
-    TranscriptDocument,
-    TranscriptSegmentData,
     TranscriptionProvider,
 )
+from app.providers.fun_asr import AsrProviderError
 from app.providers.qwen_draft import DraftProviderError
 from app.schemas import DraftUpdate
 from app.serializers import segment_dict
 from app.services.audio_service import resolve_audio_path
+from app.services.dialogue_service import transcript_document
 from app.services.export import build_record_text
+from app.services.job_state import ensure_no_active_job, finish_job
 from app.services.session_service import ensure_editable, get_session_or_404
 
 logger = logging.getLogger(__name__)
@@ -62,6 +64,15 @@ def _mark_failed(db: Session, session: ConsultationSession, message: str) -> Non
 def _normalized_generated_fields(
     result: DraftResult, valid_segment_ids: set[str]
 ) -> dict[str, tuple[str, str, list[str]]]:
+    if not result.is_mock:
+        from app.providers.qwen_draft import _parse_fields
+        try:
+            _parse_fields({"fields": [
+                {"key": field.key, "value": field.value, "source_segment_ids": list(field.source_segment_ids)}
+                for field in result.fields
+            ]}, valid_segment_ids)
+        except (ValueError, TypeError):
+            raise ApiError(502, "draft_invalid_response", "模型返回格式或来源无效，请重试。", metrics=result.metadata) from None
     generated_by_key = {}
     for field in result.fields:
         generated_by_key.setdefault(field.key, field)
@@ -109,6 +120,7 @@ def transcribe_session(
     session_id: str,
     settings: Settings,
     provider: TranscriptionProvider,
+    *, job_id: str | None = None,
 ) -> ConsultationSession:
     session = get_session_or_404(db, session_id)
     ensure_editable(session)
@@ -128,18 +140,28 @@ def transcribe_session(
             audio_path=audio_path,
             original_filename=session.audio_file.original_filename,
         )
+    except AsrProviderError as exc:
+        logger.warning("ASR provider failed for session %s: %s", session.id, exc.code)
+        if job_id is None:
+            _mark_failed(db, session, exc.message)
+        raise ApiError(502, exc.code, exc.message, metrics=getattr(exc, "metadata", {})) from None
     except Exception as exc:
-        logger.exception("ASR provider failed for session %s", session.id)
-        _mark_failed(db, session, "语音转写失败，请稍后重试或检查音频文件。")
+        logger.error("ASR provider failed for session %s (%s)", session.id, type(exc).__name__)
+        if job_id is None:
+            _mark_failed(db, session, "语音转写失败，请稍后重试或检查音频文件。")
         raise ApiError(
             502, "asr_failed", "语音转写服务暂时不可用，请稍后重试。"
         ) from exc
 
+    db.rollback()
+    session = get_session_or_404(db, session_id)
+    ensure_editable(session)
     clean_segments = [
         segment for segment in result.segments if segment.text.strip()
     ]
     if not clean_segments:
-        _mark_failed(db, session, "转写未返回任何有效文本，请更换音频后重试。")
+        if job_id is None:
+            _mark_failed(db, session, "转写未返回任何有效文本，请更换音频后重试。")
         raise ApiError(502, "empty_transcript", "转写结果为空，请更换音频后重试。")
 
     transcript = Transcript(
@@ -164,6 +186,7 @@ def transcribe_session(
             )
         )
 
+    finish_job(db, job_id, {"transcript_id": transcript.id}, result.metadata)
     session.transcript = transcript
     session.status = SessionStatus.TRANSCRIBED
     session.error_message = None
@@ -172,7 +195,13 @@ def transcribe_session(
     return get_session_or_404(db, session.id)
 
 
+def _explicit_speaker(line: str) -> str:
+    match = re.match(r"^(医生|医师|患者|病人|家属)\s*[:：]", line)
+    return {"医师": "医生", "病人": "患者"}.get(match[1], match[1]) if match else "未知"
+
+
 def create_manual_transcript(db: Session, session_id: str, text: str) -> ConsultationSession:
+    ensure_no_active_job(db, session_id)
     session = get_session_or_404(db, session_id)
     ensure_editable(session)
     if session.transcript is not None:
@@ -187,7 +216,7 @@ def create_manual_transcript(db: Session, session_id: str, text: str) -> Consult
     )
     for seq, line in enumerate(line.strip() for line in text.splitlines() if line.strip()):
         transcript.segments.append(TranscriptSegment(
-            id=new_id(), seq=seq, speaker="未知", text=line,
+            id=new_id(), seq=seq, speaker=_explicit_speaker(line), text=line,
             start_ms=None, end_ms=None,
         ))
     session.transcript = transcript
@@ -202,6 +231,7 @@ def generate_draft(
     db: Session,
     session_id: str,
     provider: DraftGenerationProvider,
+    *, job_id: str | None = None,
 ) -> ConsultationSession:
     session = get_session_or_404(db, session_id)
     ensure_editable(session)
@@ -215,20 +245,7 @@ def generate_draft(
         )
 
     transcript = session.transcript
-    document = TranscriptDocument(
-        id=transcript.id,
-        segments=tuple(
-            TranscriptSegmentData(
-                id=segment.id,
-                seq=segment.seq,
-                speaker=segment.speaker,
-                text=segment.text,
-                start_ms=segment.start_ms,
-                end_ms=segment.end_ms,
-            )
-            for segment in transcript.segments
-        ),
-    )
+    document = transcript_document(session)
     session.status = SessionStatus.GENERATING_DRAFT
     session.error_message = None
     session.updated_at = utcnow()
@@ -244,15 +261,20 @@ def generate_draft(
             result = provider.generate(document)
     except DraftProviderError as exc:
         logger.warning("Draft provider failed for session %s: %s", session.id, exc.code)
-        _mark_failed(db, session, exc.message)
-        raise ApiError(502, exc.code, exc.message) from None
+        if job_id is None:
+            _mark_failed(db, session, exc.message)
+        raise ApiError(502, exc.code, exc.message, metrics=getattr(exc, "metadata", {})) from None
     except Exception as exc:
         logger.error("Draft provider failed for session %s (%s)", session.id, type(exc).__name__)
-        _mark_failed(db, session, "病历草稿生成失败，请稍后重试。")
+        if job_id is None:
+            _mark_failed(db, session, "病历草稿生成失败，请稍后重试。")
         raise ApiError(
             502, "draft_generation_failed", "病历草稿生成服务暂时不可用，请稍后重试。"
         ) from None
 
+    db.rollback()
+    session = get_session_or_404(db, session_id)
+    ensure_editable(session)
     normalized = _normalized_generated_fields(
         result, {segment.id for segment in transcript.segments}
     )
@@ -280,6 +302,7 @@ def generate_draft(
             )
         )
 
+    finish_job(db, job_id, {"draft_id": draft.id, "draft_revision": 1}, result.metadata)
     session.draft = draft
     session.status = SessionStatus.DRAFT_READY
     session.error_message = None
@@ -343,6 +366,7 @@ def regenerate_draft(
     session_id: str,
     payload_revision: int,
     provider: DraftGenerationProvider,
+    *, job_id: str | None = None,
 ) -> ConsultationSession:
     session = get_session_or_404(db, session_id)
     ensure_editable(session)
@@ -359,25 +383,13 @@ def regenerate_draft(
         )
 
     transcript = session.transcript
-    document = TranscriptDocument(
-        id=transcript.id,
-        segments=tuple(
-            TranscriptSegmentData(
-                id=segment.id,
-                seq=segment.seq,
-                speaker=segment.speaker,
-                text=segment.text,
-                start_ms=segment.start_ms,
-                end_ms=segment.end_ms,
-            )
-            for segment in transcript.segments
-        ),
-    )
+    document = transcript_document(session)
+    db.commit()
     try:
         result = provider.generate(document)
     except DraftProviderError as exc:
         logger.warning("Draft regeneration failed for session %s: %s", session.id, exc.code)
-        raise ApiError(502, exc.code, exc.message + " 当前内容未被覆盖。") from None
+        raise ApiError(502, exc.code, exc.message + " 当前内容未被覆盖。", metrics=exc.metadata) from None
     except Exception as exc:
         logger.error("Draft regeneration failed for session %s (%s)", session.id, type(exc).__name__)
         raise ApiError(
@@ -387,6 +399,10 @@ def regenerate_draft(
     normalized = _normalized_generated_fields(
         result, {segment.id for segment in transcript.segments}
     )
+    db.rollback()
+    session = get_session_or_404(db, session_id)
+    draft = session.draft
+    finish_job(db, job_id, {"draft_id": draft.id, "draft_revision": payload_revision + 1}, result.metadata)
     _claim_draft(db, draft, payload_revision)
     now = utcnow()
     for field in draft.fields:

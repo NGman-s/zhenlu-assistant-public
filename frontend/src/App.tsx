@@ -69,6 +69,7 @@ export default function App() {
   const [bootNonce, setBootNonce] = useState(0);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [dirty, setDirty] = useState(false);
+  const [asrIsMock, setAsrIsMock] = useState<boolean | null>(null);
   const [draftIsMock, setDraftIsMock] = useState<boolean | null>(null);
   const [device, setDevice] = useState<{ managed: boolean; connected: boolean; mode: string } | null>(null);
 
@@ -124,9 +125,15 @@ export default function App() {
     async function bootstrap() {
       try {
         const health = await getHealth();
-        if (!cancelled) setDraftIsMock(health.draft_is_mock);
+        if (!cancelled) {
+          setAsrIsMock(health.asr_is_mock);
+          setDraftIsMock(health.draft_is_mock);
+        }
       } catch {
-        if (!cancelled) setDraftIsMock(null);
+        if (!cancelled) {
+          setAsrIsMock(null);
+          setDraftIsMock(null);
+        }
       }
       try {
         const data = await listSessions();
@@ -285,6 +292,7 @@ export default function App() {
             notify={notify}
             onWorkspaceUpdated={handleWorkspaceUpdated}
             onDirtyChange={setDirty}
+            asrIsMock={asrIsMock}
             draftIsMock={draftIsMock}
           />
         ) : (

@@ -3,13 +3,15 @@
 面向医生审核的语音病历流程原型：建立问诊会话、上传模拟音频、查看逐句转写、
 生成结构化病历草稿、由医生修改并确认，最后复制为纯文本。
 
-当前阶段不接入真实患者数据。默认语音识别与草稿生成均使用 mock 服务；另提供可选的阿里云百炼千问草稿接口，配置后会将问诊文字发送给该服务。没有 API 密钥也可使用模拟流程。
+当前阶段不接入真实患者数据。默认语音识别与草稿生成均使用 mock 服务；另提供可选的阿里云百炼 Fun-ASR 实时转写接口和千问草稿接口，配置后分别会将音频、问诊文字发送给对应服务。没有 API 密钥也可使用模拟流程。
+
+2026-11-04 后端新增持久化后台任务、幂等与中断恢复、独立对话角色整理、带来源和版本的会话问答、模型用量记录、音频校验重传和数据库备份。现有同步接口保持兼容。新增接口和配置见 [后端开发进度与联调](docs/后端开发进度与联调.md)。
 
 ## 已实现
 
 - 会话：创建、列表、状态、刷新后恢复已保存内容。
 - 音频：上传合法音频到本地目录、播放、格式与大小校验。
-- 转写：逐句展示、模拟标识、来源定位所需句子 ID 与可选毫秒时间区间。
+- 转写：默认模拟；可选 Fun-ASR 实时接口；逐句展示、模拟/真实标识、来源定位所需句子 ID 与可选毫秒时间区间。
 - 手动录入：可直接按行填写问诊内容，无需上传音频；默认生成手动模板，配置千问后可生成带来源的草稿。
 - 草稿：主诉、现病史、既往史、用药史、过敏史五个字段；“未提及”原样展示。
 - 审核：字段编辑、显式保存、revision 并发保护、确认锁定、确认版本快照。
@@ -18,13 +20,14 @@
 - 复制：仅确认后可复制纯文本，并带模拟数据说明。
 - 错误提示：上传为空/格式不支持/超限、步骤顺序错误、会话不存在、确认后修改、版本冲突等。
 
-不在本阶段范围：正式硬件授权、实时转写、HIS 写入、医疗建议、多用户权限、真实 ASR。
+不在本阶段范围：正式硬件授权、实时边说边转、HIS 写入、医疗建议、多用户权限、真实 ASR 的完整生产验收。
 
 ## 技术栈
 
 - 前端：React 19、TypeScript、Vite 6、原生 CSS。
 - 后端：Python 3.11+、FastAPI、SQLAlchemy、SQLite。
 - 音频：本地文件存储；示例音频使用 Windows 中文语音合成生成。
+- 转写提供方：默认 mock，可配置 Fun-ASR 实时 WebSocket 接口。
 - 草稿提供方：默认 mock，可配置千问兼容接口。
 
 ## 项目目录
@@ -33,7 +36,7 @@
 .
 ├─ backend/
 │  ├─ app/
-│  │  ├─ providers/          # 转写与草稿协议、mock 实现、示例数据加载
+│  │  ├─ providers/          # 转写与草稿协议、mock/Fun-ASR/千问实现、示例数据加载
 │  │  ├─ routers/            # 会话、音频、转写、草稿、确认、演示接口
 │  │  ├─ services/           # 上传存储、状态流转、确认与纯文本导出
 │  │  ├─ config.py           # 环境配置
@@ -156,9 +159,11 @@ Get-ChildItem backend\data\uploads -Exclude .gitkeep | Remove-Item -Recurse
 - **医生修改保护**：字段记录 `origin`（`ai`/`doctor`）、`ai_value` 和编辑时间；
   重新生成只更新 AI 字段，医生字段的新结果只写入 `suggestion`。确认时保存独立快照并锁定。
 - **revision 乐观锁**：保存、重生成、确认都携带 `expected_revision`，避免旧页面静默覆盖。
-- **来源校验**：草稿服务返回的句子 ID 必须属于当前转写，服务端丢弃不存在的 ID。
+- **来源校验**：草稿服务返回的句子 ID 必须属于当前转写，真实提供方的无效来源会被拒绝；旧 mock 结果沿用过滤规则。
 - **时间戳策略**：仅在上传文件与内置示例音频内容校验一致时使用生成脚本记录的句子时间；其他上传的 mock 结果一律为
   `null`，界面显示“无可靠时间戳”，不会推测。
+- **Fun-ASR 接入**：上传的音频通过 WebSocket 分片发送至实时接口，只保存 `sentence_end=true` 的最终句子；
+  接口未返回说话人时统一写“未知”，时间戳直接使用接口返回值，不推测。
 - **未保存保护**：切换或新建会话前提示未保存修改，刷新或关闭页面时由浏览器提示；版本冲突后保留页面输入，方便复制后刷新。
 - **建议来源**：显式采纳系统建议时同时保存该建议对应的来源；手动编辑仍保留原草稿来源，并提示其不一定代表修改后的内容。
 - **模拟标识**：转写、草稿、示例音频、复制文本和侧栏均明确标出模拟性质和提供方。
@@ -187,6 +192,9 @@ Get-ChildItem backend\data\uploads -Exclude .gitkeep | Remove-Item -Recurse
     会话编号、五个字段、医生修改值和模拟说明；
   - 刷新后仍停留在先前选中的会话并恢复全部数据。
 
+2026-11-03 补充 Fun-ASR 本地协议模拟测试：run-task/finish-task、最终句子聚合、心跳与中间结果过滤、task-failed、
+不支持格式、鉴权失败、接口集成和失败重试；未使用真实百炼密钥完成线上验收。
+
 运行验证命令：
 
 ```powershell
@@ -201,13 +209,16 @@ npm run build
 
 - **mock ASR 不解析真实音频内容**：按文件名和内容校验匹配示例病例；其他上传得到默认虚构病例，
   并明确提示未匹配。接入真实 ASR 后才会基于音频内容识别。
+- **Fun-ASR 尚未真实验收**：provider、配置和协议测试已实现，但未用真实密钥验证账号权限、地域、业务空间、
+  实际延迟、费用和数据合规。
+- **Fun-ASR 仍使用实时分片协议**：默认每 100 ms 发送一片，传输接近实时时长；可通过新后台任务接口执行，但尚无录音文件版、分片续传或边说边转界面。
+- **Fun-ASR 无说话人分离**：识别句子说话人为“未知”；WAV 必须为单声道 16-bit PCM，不支持的上传格式会明确报错。
 - 示例音频由中文 TTS 合成，不是真实问诊录音，不具备临床效力。
-- 只有示例音频有句子时间；真实上传的转写没有可靠时间信息，也不提供音频定位。
+- mock 仅为匹配的示例音频提供时间戳；Fun-ASR 使用供应商返回的有效时间戳，缺失或无效时留空。
 - 确认版本目前不可撤回或继续修订；需要修改只能新建会话。数据模型保存了版本号，
   但本阶段没有“重新开审”界面。
 - 转写内容不可编辑；医生只能编辑结构化草稿。
-- 单一音频、无分片/上传续传；处理为同步请求，没有后台队列；若进程在处理中退出，
-  状态可能停留在 `transcribing`/`generating_draft`。
+- 每会话单一音频，支持校验值重传去重；无分片断点续传。后台队列和过期任务恢复已实现，新界面的任务轮询需前端接入。
 - 上传仅按扩展名校验，不验证真实音频内容，也不转码。演示文件未加密，无访问控制。
 - 无登录、机构/医生/患者隔离、审计日志和数据删除流程；**不可用于真实患者数据**。
 - 纯文本复制为单模板，没有逐字段复制和机构模板配置。
@@ -216,10 +227,10 @@ npm run build
 
 ## 下一步接入真实 ASR 所需的信息
 
-实现入口见 [backend/app/providers/base.py](backend/app/providers/base.py) 与
+Fun-ASR 实时 provider 已按现有协议搭好框架，入口见 [backend/app/providers/base.py](backend/app/providers/base.py) 与
 [backend/app/providers/registry.py](backend/app/providers/registry.py)。
 
-接入真实 ASR 前需要确认：
+正式启用 Fun-ASR 或接入其他真实 ASR 前需要确认：
 
 1. 服务商、模型版本、接口地址和鉴权方式；密钥只能通过环境变量/密钥管理服务注入。
 2. 支持的音频格式、采样率、大小、单段时长、并发和频率限制。
@@ -227,10 +238,12 @@ npm run build
    用于回听。若不能保证可靠时间，保持 `start_ms`/`end_ms = null`。
 4. 是否支持说话人分离；首版可不区分医生/患者，使用“未知”也可接受。
 5. 超时、限流、错误码、重试与计费规则。真实调用往往不再是同步毫秒级，
-   需要改为后台任务、轮询/回调、任务状态与失败恢复。
+   可使用已实现的后台任务、状态轮询和失败恢复；供应商性能与计费仍需实际验证。
 6. 录音告知同意、数据跨境/留存/删除、去标识化和供应商数据处理协议。
 7. 需要将其实现为 `TranscriptionProvider`（返回逐句 `AsrResult`），在注册表中注册，
    并通过 `ZHENLU_ASR_PROVIDER` 切换。
+
+Fun-ASR 通过 `ZHENLU_ASR_PROVIDER=fun-asr` 和下方 `ZHENLU_FUN_ASR_*` 变量配置；启用后上传音频会发送至该服务，正式使用前需确认数据授权和合规范围。
 
 千问接入见 [配置说明](docs/qwen.md)。模型只负责整理草稿；服务器校验结构和来源 ID，但无法仅凭来源 ID 保证事实正确，仍需医生逐项核对。
 
@@ -244,12 +257,20 @@ npm run build
 | `ZHENLU_UPLOAD_DIR` | `backend/data/uploads` | 本地音频目录 |
 | `ZHENLU_SAMPLE_DATA_DIR` | `sample-data` | 虚构病例目录 |
 | `ZHENLU_MAX_AUDIO_MB` | `50` | 单段音频大小上限 |
-| `ZHENLU_ASR_PROVIDER` | `mock` | 转写提供方 |
+| `ZHENLU_ASR_PROVIDER` | `mock` | 转写提供方：`mock` 或 `fun-asr` |
+| `ZHENLU_FUN_ASR_BASE_URL` | `wss://dashscope.aliyuncs.com/api-ws/v1/inference` | Fun-ASR WebSocket 接口地址 |
+| `ZHENLU_FUN_ASR_MODEL` | `fun-asr-realtime-2026-02-28` | Fun-ASR 模型 ID |
+| `ZHENLU_FUN_ASR_API_KEY` | 空 | 百炼密钥，仅后端使用 |
+| `ZHENLU_FUN_ASR_WORKSPACE` | 空 | 可选业务空间 ID，写入 `X-DashScope-WorkSpace` |
+| `ZHENLU_FUN_ASR_TIMEOUT_SECONDS` | `300` | 单次识别总时限 |
+| `ZHENLU_FUN_ASR_SAMPLE_RATE` | `16000` | 非 WAV 音频采样率；WAV 读取实际值 |
+| `ZHENLU_FUN_ASR_LANGUAGE_HINTS` | `zh` | 语言提示，逗号分隔 |
+| `ZHENLU_FUN_ASR_CHUNK_INTERVAL_SECONDS` | `0.1` | 音频分片发送间隔秒数 |
 | `ZHENLU_DRAFT_PROVIDER` | `mock` | 草稿提供方：`mock` 或 `qwen` |
 | `ZHENLU_QWEN_BASE_URL` | 空 | 百炼业务空间 OpenAI 兼容接口地址 |
 | `ZHENLU_QWEN_MODEL` | `qwen3.7-plus` | 可切换为 `qwen3.8-flash` |
 | `ZHENLU_QWEN_API_KEY` | 空 | 百炼密钥，仅后端使用 |
-| `ZHENLU_QWEN_TIMEOUT_SECONDS` | `120` | 模型请求超时秒数 |
+| `ZHENLU_QWEN_TIMEOUT_SECONDS` | `45` | 含等待和重试的模型请求总时限 |
 | `ZHENLU_MOCK_DELAY_SECONDS` | `0.35` | mock 处理延迟，便于观察处理中状态 |
 | `ZHENLU_CORS_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | 允许的前端源 |
 | `ZHENLU_TIMEZONE_OFFSET_HOURS` | `8` | 确认文本时间显示时区 |

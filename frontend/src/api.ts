@@ -74,8 +74,13 @@ export function listSessions(signal?: AbortSignal): Promise<SessionListResponse>
   return request<SessionListResponse>("/sessions", { signal });
 }
 
-export function getHealth(signal?: AbortSignal): Promise<{ draft_is_mock: boolean }> {
-  return request<{ draft_is_mock: boolean }>("/health", { signal });
+export interface HealthStatus {
+  asr_is_mock: boolean;
+  draft_is_mock: boolean;
+}
+
+export function getHealth(signal?: AbortSignal): Promise<HealthStatus> {
+  return request<HealthStatus>("/health", { signal });
 }
 
 export function getSession(

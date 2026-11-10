@@ -14,6 +14,10 @@ desktop/device-public.der
 # 本地保留的项目方案
 /诊录助手产品设计方案.md
 /诊录助手项目方案概要.md
+docs/团队分工与阶段任务.md
+docs/诊录助手初步产品简易方案.md
+docs/teacher-demo.md
+docs/*
 
 # 本地数据（数据库与上传音频，不提交）
 backend/data/*
@@ -23,6 +27,7 @@ backend/data/uploads/*
 
 # 第三方问诊评测数据（可能含敏感信息，不提交）
 evaluation-data/
+sample-data/
 
 # Node / Vite
 frontend/node_modules/

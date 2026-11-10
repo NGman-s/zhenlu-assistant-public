@@ -2,10 +2,13 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 import re
+import sqlite3
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from fastapi import Request
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -20,13 +23,64 @@ class Database:
             if url in {"sqlite://", "sqlite:///:memory:"}:
                 engine_kwargs["poolclass"] = StaticPool
         self.engine = create_engine(url, **engine_kwargs)
+        if self.engine.dialect.name == "sqlite":
+            @event.listens_for(self.engine, "connect")
+            def configure_sqlite(connection, _):
+                connection.execute("PRAGMA foreign_keys=ON")
+                connection.execute("PRAGMA busy_timeout=10000")
         self.session_factory = sessionmaker(
             bind=self.engine, autoflush=False, expire_on_commit=False
         )
 
     def create_all(self) -> None:
+        self._backup_before_upgrade()
         Base.metadata.create_all(self.engine)
         self._allow_text_only_transcripts()
+        columns = inspect(self.engine).get_columns("audio_files")
+        if not any(c["name"] == "sha256" for c in columns):
+            with self.engine.begin() as connection:
+                connection.execute(text("ALTER TABLE audio_files ADD COLUMN sha256 VARCHAR(64)"))
+        with self.engine.begin() as connection:
+            connection.execute(text("CREATE TABLE IF NOT EXISTS schema_migrations (version VARCHAR(80) PRIMARY KEY, applied_at VARCHAR(40) NOT NULL)"))
+            version = "20261104_jobs_assistant_audio_hash"
+            if not connection.execute(text("SELECT version FROM schema_migrations WHERE version=:version"), {"version": version}).first():
+                connection.execute(text("INSERT INTO schema_migrations (version, applied_at) VALUES (:version, :at)"), {"version": version, "at": datetime.now(UTC).isoformat()})
+
+    def _backup_before_upgrade(self) -> None:
+        inspector = inspect(self.engine)
+        tables = inspector.get_table_names()
+        if "consultation_sessions" not in tables or self.engine.dialect.name != "sqlite":
+            return
+        missing = not {"processing_jobs", "assistant_turns", "structured_dialogues", "schema_migrations"}.issubset(tables)
+        if "transcripts" in tables:
+            missing |= any(c["name"] == "audio_file_id" and not c["nullable"] for c in inspector.get_columns("transcripts"))
+        if "audio_files" in tables:
+            missing |= not any(c["name"] == "sha256" for c in inspector.get_columns("audio_files"))
+        source = self.engine.url.database
+        if missing and source and source != ":memory:":
+            path = Path(source).resolve()
+            stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
+            self.backup(path.parent / "backups" / f"{path.stem}-before-{stamp}.sqlite3")
+
+    def backup(self, destination: Path) -> Path:
+        """SQLite backup API includes committed WAL content; never overwrite a backup."""
+        if self.engine.dialect.name != "sqlite":
+            raise ValueError("此备份命令仅支持 SQLite。")
+        destination = destination.resolve()
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.open("xb").close()
+        raw = self.engine.raw_connection()
+        try:
+            with sqlite3.connect(destination) as target:
+                raw.driver_connection.backup(target)
+                if target.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+                    raise RuntimeError("备份完整性检查未通过。")
+        except Exception:
+            destination.unlink(missing_ok=True)
+            raise
+        finally:
+            raw.close()
+        return destination
 
     def _allow_text_only_transcripts(self) -> None:
         """Upgrade the original SQLite schema atomically without losing records."""

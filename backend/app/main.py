@@ -15,7 +15,11 @@ from app.database import Database
 from app.errors import setup_exception_handlers
 from app.providers.demo_data import DemoCatalog
 from app.providers.registry import build_asr_provider, build_draft_provider
-from app.routers import audio, demo, drafts, records, sessions, transcripts
+from app.providers.assistant import build_assistant_provider
+from app.providers.dialogue import build_dialogue_provider
+from app.routers import assistant, audio, demo, dialogue, drafts, jobs, records, sessions, transcripts
+from app.services.job_state import recover_expired, recover_legacy_states
+from app.services.jobs import JobWorker
 from app.schemas import HealthOut
 
 logging.basicConfig(
@@ -39,7 +43,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.demo_catalog = catalog
         app.state.asr_provider = build_asr_provider(settings, catalog)
         app.state.draft_provider = build_draft_provider(settings, catalog)
+        app.state.assistant_provider = build_assistant_provider(settings)
+        app.state.dialogue_provider = build_dialogue_provider(settings)
         app.state.db = database
+        with database.session_factory() as db:
+            recover_expired(db)
+            recover_legacy_states(db)
+        worker = JobWorker(app) if settings.job_worker_enabled else None
+        if worker:
+            worker.start()
         logger.info(
             "诊录助手启动：ASR=%s，草稿=%s，数据库=%s",
             app.state.asr_provider.name,
@@ -49,14 +61,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         try:
             yield
         finally:
+            if worker:
+                worker.stop()
             database.dispose()
 
     app = FastAPI(
         title=settings.app_name,
-        version="0.1.0",
+        version="0.2.0",
         description=(
-            "诊录助手第一阶段原型：会话、音频上传、模拟转写、结构化草稿、"
-            "医生审核确认与复制。语音识别为模拟服务，草稿生成可按配置切换。"
+            "诊录助手原型：音频转写、结构化病历、审核确认、带来源的会话问答，"
+            "支持真实模型配置、持久化处理任务和失败恢复。"
         ),
         lifespan=lifespan,
     )
@@ -94,6 +108,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(drafts.router, prefix="/api")
     app.include_router(records.router, prefix="/api")
     app.include_router(demo.router, prefix="/api")
+    app.include_router(jobs.router, prefix="/api")
+    app.include_router(assistant.router, prefix="/api")
+    app.include_router(dialogue.router, prefix="/api")
 
     @app.get("/api/health", response_model=HealthOut, tags=["系统"])
     def health(request: Request) -> dict:
@@ -105,7 +122,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "asr_is_mock": asr_provider.is_mock,
             "draft_provider": draft_provider.name,
             "draft_is_mock": draft_provider.is_mock,
-            "mock_mode": bool(asr_provider.is_mock and draft_provider.is_mock),
+            "mock_mode": bool(asr_provider.is_mock and draft_provider.is_mock and request.app.state.assistant_provider.is_mock),
+            "assistant_provider": request.app.state.assistant_provider.name,
+            "assistant_is_mock": request.app.state.assistant_provider.is_mock,
+            "job_worker_enabled": settings.job_worker_enabled,
+            "dialogue_provider": request.app.state.dialogue_provider.name,
         }
 
     @app.get("/api/device/status", tags=["系统"])

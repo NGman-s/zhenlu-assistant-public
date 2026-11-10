@@ -28,6 +28,7 @@ interface WorkspaceProps {
   notify: (tone: ToastTone, message: string) => void;
   onWorkspaceUpdated: (workspace: SessionDetail) => void;
   onDirtyChange: (dirty: boolean) => void;
+  asrIsMock: boolean | null;
   draftIsMock: boolean | null;
 }
 
@@ -37,6 +38,7 @@ export function Workspace({
   notify,
   onWorkspaceUpdated,
   onDirtyChange,
+  asrIsMock,
   draftIsMock,
 }: WorkspaceProps) {
   const [busy, setBusy] = useState<BusyAction>(null);
@@ -222,7 +224,11 @@ export function Workspace({
         </div>
       </header>
 
-      <p className="demo-notice">当前仅用于虚构病例演示，音频转写为模拟结果。请勿上传真实患者信息。</p>
+      <p className="demo-notice">
+        {asrIsMock === false
+          ? "当前仅用于虚构病例演示；上传的音频将发送至已配置的语音识别服务。请勿上传真实患者信息。"
+          : "当前仅用于虚构病例演示，音频转写为模拟结果。请勿上传真实患者信息。"}
+      </p>
 
       <StatusStepper
         status={workspace.status}
@@ -272,6 +278,7 @@ export function Workspace({
           busy={busy}
           highlightIds={highlightIds}
           focusToken={sourceFocusToken}
+          asrIsMock={asrIsMock}
           onTranscribe={handleTranscribe}
           onManualSave={handleManualTranscript}
           onDirtyChange={onDirtyChange}
