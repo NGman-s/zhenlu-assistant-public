@@ -82,6 +82,41 @@ class ManualTranscriptInput(BaseModel):
         return value
 
 
+class QuestionInput(BaseModel):
+    question: str = Field(min_length=1, max_length=2000)
+
+    @field_validator("question")
+    @classmethod
+    def strip_question(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("问题不能为空")
+        return value.strip()
+
+
+class JobCreate(BaseModel):
+    operation: Literal["transcribe", "structure", "generate", "regenerate", "ask"]
+    request_id: str | None = Field(default=None, min_length=1, max_length=100, pattern=r"^[A-Za-z0-9_.:-]+$")
+    expected_revision: int | None = Field(default=None, ge=1)
+    question: str | None = Field(default=None, min_length=1, max_length=2000)
+
+    @model_validator(mode="after")
+    def validate_operation_fields(self) -> JobCreate:
+        if (self.operation == "regenerate") != (self.expected_revision is not None):
+            raise ValueError("仅重新生成操作需要 expected_revision")
+        if (self.operation == "ask") != (self.question is not None):
+            raise ValueError("仅问答操作需要 question")
+        if self.question is not None:
+            self.question = QuestionInput(question=self.question).question
+        return self
+
+    def operation_payload(self) -> dict:
+        if self.operation == "regenerate":
+            return {"expected_revision": self.expected_revision}
+        if self.operation == "ask":
+            return {"question": self.question}
+        return {}
+
+
 # ---------- 响应结构 ----------
 
 
@@ -90,6 +125,7 @@ class AudioOut(BaseModel):
     filename: str
     content_type: str | None
     size_bytes: int
+    sha256: str | None
     duration_ms: int | None
     uploaded_at: str
     url: str
@@ -185,6 +221,7 @@ class SessionDetailOut(SessionSummaryOut):
     transcript: TranscriptOut | None
     draft: DraftOut | None
     latest_record: ConfirmedRecordOut | None
+    dialogue: dict | None
 
 
 class SessionListOut(BaseModel):
@@ -217,3 +254,7 @@ class HealthOut(BaseModel):
     draft_provider: str
     draft_is_mock: bool
     mock_mode: bool
+    assistant_provider: str
+    assistant_is_mock: bool
+    job_worker_enabled: bool
+    dialogue_provider: str

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, File, Request, UploadFile, status
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, File, Header, Request, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
@@ -22,10 +24,11 @@ router = APIRouter(prefix="/sessions", tags=["音频"])
 async def upload_audio(
     session_id: str,
     request: Request,
+    x_audio_sha256: Annotated[str | None, Header(pattern=r"^[a-f0-9]{64}$")] = None,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
 ) -> dict:
-    session = await store_audio(db, session_id, file, request.app.state.settings)
+    session = await store_audio(db, session_id, file, request.app.state.settings, x_audio_sha256)
     return session_detail_dict(session)
 
 

@@ -3,7 +3,7 @@
 - Base URL：`http://127.0.0.1:8000/api`
 - 数据格式：请求与响应均为 UTF-8 JSON；音频上传使用 `multipart/form-data`。
 - 交互式文档：启动后端后访问 `http://127.0.0.1:8000/docs`。
-- 默认语音识别和病历草稿均为 mock；草稿也可配置千问服务，响应中的 `is_mock` 和 `notice` 标识结果来源。
+- 默认语音识别和病历草稿均为 mock；语音识别可配置 Fun-ASR 实时服务，草稿可配置千问服务，响应中的 `is_mock` 和 `notice` 标识结果来源。
 
 ## 1. 错误格式
 
@@ -47,6 +47,15 @@
 | 413 | `audio_too_large` | 音频超过 `ZHENLU_MAX_AUDIO_MB` |
 | 415 | `unsupported_audio_format` | 扩展名不在允许列表 |
 | 502 | `asr_failed` / `empty_transcript` | 转写提供方失败或返回空文本 |
+| 502 | `fun_asr_auth_failed` | Fun-ASR 鉴权失败 |
+| 502 | `fun_asr_connection_failed` | Fun-ASR 无法连接或连接中断 |
+| 502 | `fun_asr_timeout` | Fun-ASR 启动、发送音频或等待结果超时 |
+| 502 | `fun_asr_failed` | Fun-ASR 返回 `task-failed` |
+| 502 | `fun_asr_invalid_response` | Fun-ASR 返回消息格式无效 |
+| 502 | `fun_asr_empty_result` | Fun-ASR 未返回最终识别文本 |
+| 502 | `fun_asr_unsupported_format` | 音频格式不在 Fun-ASR 支持列表 |
+| 502 | `fun_asr_invalid_audio` | WAV 不是单声道 16-bit PCM 或采样率无效 |
+| 502 | `fun_asr_input_invalid` | 音频文件为空或无法读取 |
 | 502 | `draft_generation_failed` | 草稿提供方失败 |
 | 500 | `internal_error` | 未预期的服务端错误 |
 
@@ -57,7 +66,7 @@
 - 所有 API 时间字段为 UTC ISO 8601 字符串，例如 `2026-10-27T08:51:00Z`。
 - 转写句子 `start_ms` / `end_ms` 可为 `null`。当识别服务没有可靠时间信息时必须为 `null`，服务端和界面都不会填充推测值。
 - 示例音频的时间戳来自合成音频生成记录，仅在文件名匹配且内容与内置示例一致时使用；其他上传的 mock 转写没有可靠时间戳。
-- 草稿字段的 `sources` 是从转写句子中按 ID 解析出的原文。服务端会丢弃不属于当前转写的来源 ID。
+- 草稿字段的 `sources` 是从转写句子中按 ID 解析出的原文。真实模型返回不属于当前转写的来源 ID 时，服务端拒绝结果；旧 mock 结果沿用过滤规则。
 
 ### 2.2 草稿来源与版本
 
@@ -295,6 +304,10 @@ curl -X POST "http://127.0.0.1:8000/api/sessions/{session_id}/audio" \
 - 上传示例音频文件名时，mock ASR 返回对应虚构对话的真实示例时间戳。
 - 上传其他文件时，mock ASR 使用默认虚构病例，所有时间戳为 `null`，并在 `notice` 中说明。
 - `transcript.is_mock=true`，`transcript.provider` 标识模拟服务。
+- `ZHENLU_ASR_PROVIDER=fun-asr` 时，后端通过 WebSocket 将当前音频分片发送至 Fun-ASR 实时接口，仅保留 `sentence_end=true` 的最终句子，并使用接口返回的 `begin_time`/`end_time` 作为毫秒时间戳。
+- Fun-ASR 实时结果标记 `transcript.is_mock=false`，`provider` 为 `fun-asr:<model>`；该接口未返回说话人信息，所有句子 `speaker` 为 `未知`。
+- Fun-ASR 的 WAV 输入必须为单声道 16-bit PCM；非 WAV 格式使用配置的采样率，必须与实际音频一致。当前支持 `wav`、`mp3`、`aac`、`amr`、`opus`、`speex`；上传允许的 `ogg`、`webm`、`flac`、`m4a` 会返回 `502 fun_asr_unsupported_format`，需要先转码。
+- 本接口保持同步兼容；也可提交 transcribe 后台任务。Fun-ASR 仍按约 100 ms 分片发送音频，后台执行不改变传输耗时。
 - 若提供方抛错，会话状态变为 `failed`、`error_message` 给出提示，接口返回 `502`；再次调用可重试。
 
 #### `GET /sessions/{session_id}/transcript`
@@ -308,7 +321,7 @@ curl -X POST "http://127.0.0.1:8000/api/sessions/{session_id}/audio" \
 基于当前转写生成五个字段。前置条件：已有转写、尚无草稿。返回 `SessionDetail`。
 
 - 五个字段全部返回；未提及的信息值为“未提及”，不会改成“无”。
-- 服务端校验并过滤来源句子 ID，只保留当前转写中真实存在的句子。
+- 服务端校验来源句子 ID；真实模型出现非法引用、缺失字段或无来源事实时拒绝整个结果。
 - `is_mock=true` 表示由内置规则生成，未调用真实大模型。
 - 千问提供方会发送对话文本及句子 ID，并要求严格结构和有效来源；无效结果返回错误，不创建草稿。
 
@@ -435,7 +448,9 @@ ZHENLU_ASR_PROVIDER=<provider-name>
 ZHENLU_DRAFT_PROVIDER=<provider-name>
 ```
 
-真实 ASR 接入时需要确认的信息：
+Fun-ASR 实时转写提供方已实现，将 `ZHENLU_ASR_PROVIDER` 设为 `fun-asr` 即可启用。它使用 `run-task`/`finish-task` WebSocket 协议，只保存最终句子，并如实标记 `is_mock=false`。自动化测试使用本地模拟 WebSocket；正式启用前仍需使用真实密钥验证账号权限、音频格式、延迟、费用、数据合规和失败恢复。
+
+接入其他真实 ASR，或正式启用 Fun-ASR 前，需要确认的信息：
 
 1. 服务商、模型与接口地址，鉴权方式（密钥只通过环境变量或密钥管理服务提供）。
 2. 支持的音频容器、采样率、单文件时长/大小和并发限制。
@@ -455,3 +470,8 @@ ZHENLU_DRAFT_PROVIDER=<provider-name>
 # 手动问诊内容
 
 `POST /api/sessions/{session_id}/transcript/manual` 接收 `{"text":"第一段\n第二段"}`。音频可选，按非空行保存，最多 200 行、20000 字符；已有转写或正在处理时不可提交。手动内容不含音频时间戳。使用默认模拟草稿服务时，生成的是需要手动填写的模板；启用千问后可生成草稿。当前仅用于虚构病例演示。
+
+
+## 6. 后台任务、角色整理与会话助手（2026-11-04）
+
+新增接口、幂等规则、任务状态、问答来源结构、上传 SHA-256 校验与恢复方式，见[后端开发进度与联调](后端开发进度与联调.md)。`GET /health` 额外返回 `assistant_provider`、`assistant_is_mock`、`dialogue_provider`、`job_worker_enabled`。会话详情新增 `dialogue`（未整理时为 null），音频新增 `sha256`（旧记录可能为 null）。原有同步接口返回结构保持兼容。

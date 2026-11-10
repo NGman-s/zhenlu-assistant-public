@@ -7,6 +7,7 @@ from app.constants import DraftStatus, SessionStatus
 from app.errors import ApiError
 from app.models import ConsultationSession
 from app.schemas import SessionCreate
+from app.services.job_state import recover_expired
 
 
 def create_session(db: Session, payload: SessionCreate) -> ConsultationSession:
@@ -21,6 +22,7 @@ def create_session(db: Session, payload: SessionCreate) -> ConsultationSession:
 
 
 def get_session_or_404(db: Session, session_id: str) -> ConsultationSession:
+    recover_expired(db, session_id)
     session = db.get(ConsultationSession, session_id)
     if session is None:
         raise ApiError(404, "session_not_found", "会话不存在，请刷新会话列表后重试。")
@@ -28,6 +30,7 @@ def get_session_or_404(db: Session, session_id: str) -> ConsultationSession:
 
 
 def list_sessions(db: Session) -> list[ConsultationSession]:
+    recover_expired(db)
     statement = select(ConsultationSession).order_by(
         ConsultationSession.updated_at.desc(), ConsultationSession.created_at.desc()
     )

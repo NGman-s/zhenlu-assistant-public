@@ -59,6 +59,9 @@ class ConsultationSession(Base):
         uselist=False,
         lazy="selectin",
     )
+    dialogue: Mapped[StructuredDialogue | None] = relationship(
+        cascade="all, delete-orphan", uselist=False, lazy="selectin",
+    )
     draft: Mapped[RecordDraft | None] = relationship(
         back_populates="session",
         cascade="all, delete-orphan",
@@ -84,6 +87,7 @@ class AudioFile(Base):
     stored_relpath: Mapped[str] = mapped_column(String(500))
     content_type: Mapped[str | None] = mapped_column(String(120), nullable=True)
     size_bytes: Mapped[int] = mapped_column(Integer)
+    sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
     duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
 
@@ -215,3 +219,62 @@ class ConfirmedRecord(Base):
 
 
 Index("ix_sessions_updated_at", ConsultationSession.updated_at)
+
+
+class ProcessingJob(Base):
+    """Durable operation and lease. A non-null slot allows one model job per session."""
+
+    __tablename__ = "processing_jobs"
+    __table_args__ = (
+        UniqueConstraint("session_id", "request_key", name="uq_job_request"),
+        Index("ix_jobs_dispatch", "dispatch_mode", "status", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    session_id: Mapped[str] = mapped_column(ForeignKey("consultation_sessions.id", ondelete="CASCADE"), index=True)
+    active_session_id: Mapped[str | None] = mapped_column(String(32), unique=True, nullable=True)
+    request_key: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    operation: Mapped[str] = mapped_column(String(24))
+    dispatch_mode: Mapped[str] = mapped_column(String(16))
+    status: Mapped[str] = mapped_column(String(20), default="queued")
+    provider: Mapped[str] = mapped_column(String(160))
+    input_hash: Mapped[str] = mapped_column(String(64))
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    base_revision: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    metrics: Mapped[dict] = mapped_column(JSON, default=dict)
+    error_code: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_status: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+
+
+class AssistantTurn(Base):
+    __tablename__ = "assistant_turns"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    session_id: Mapped[str] = mapped_column(ForeignKey("consultation_sessions.id", ondelete="CASCADE"), index=True)
+    job_id: Mapped[str | None] = mapped_column(ForeignKey("processing_jobs.id"), unique=True, nullable=True)
+    question: Mapped[str] = mapped_column(Text)
+    provider: Mapped[str] = mapped_column(String(160))
+    is_mock: Mapped[bool] = mapped_column(Boolean)
+    status: Mapped[str] = mapped_column(String(24))
+    answers: Mapped[list[dict]] = mapped_column(JSON)
+    context_version: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class StructuredDialogue(Base):
+    __tablename__ = "structured_dialogues"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    session_id: Mapped[str] = mapped_column(ForeignKey("consultation_sessions.id", ondelete="CASCADE"), unique=True)
+    transcript_id: Mapped[str] = mapped_column(ForeignKey("transcripts.id", ondelete="CASCADE"), unique=True)
+    provider: Mapped[str] = mapped_column(String(160))
+    is_mock: Mapped[bool] = mapped_column(Boolean)
+    turns: Mapped[list[dict]] = mapped_column(JSON)
+    notice: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)

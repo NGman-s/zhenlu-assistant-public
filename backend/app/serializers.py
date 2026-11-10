@@ -12,6 +12,7 @@ from app.models import (
     RecordDraft,
     Transcript,
     TranscriptSegment,
+    StructuredDialogue,
 )
 
 
@@ -40,6 +41,7 @@ def audio_dict(audio: AudioFile, session_id: str) -> dict[str, Any]:
         "filename": audio.original_filename,
         "content_type": audio.content_type,
         "size_bytes": audio.size_bytes,
+        "sha256": audio.sha256,
         "duration_ms": audio.duration_ms,
         "uploaded_at": iso_utc(audio.created_at),
         "url": f"/api/sessions/{session_id}/audio",
@@ -196,6 +198,12 @@ def session_detail_dict(session: ConsultationSession) -> dict[str, Any]:
             "transcript": transcript_dict(transcript) if transcript else None,
             "draft": draft_dict(draft, transcript) if draft else None,
             "latest_record": confirmed_record_dict(record) if record else None,
+            "dialogue": dialogue_dict(session.dialogue) if session.dialogue else None,
         }
     )
     return detail
+
+
+def dialogue_dict(dialogue: StructuredDialogue) -> dict:
+    return {"id": dialogue.id, "transcript_id": dialogue.transcript_id, "provider": dialogue.provider,
+            "is_mock": dialogue.is_mock, "turns": dialogue.turns, "notice": dialogue.notice, "created_at": iso_utc(dialogue.created_at)}

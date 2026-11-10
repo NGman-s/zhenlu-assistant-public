@@ -8,20 +8,19 @@ from app.errors import ApiError
 from app.schemas import DraftOut, DraftUpdate, RevisionRequest, SessionDetailOut
 from app.serializers import draft_dict, session_detail_dict
 from app.services.session_service import get_session_or_404
-from app.services.workflow import generate_draft, regenerate_draft, update_draft
+from app.services.workflow import update_draft
+from app.services.jobs import execute_inline
+from app.routers.assistant import IdempotencyKey
 
 router = APIRouter(prefix="/sessions", tags=["病历草稿"])
 
 
 @router.post("/{session_id}/draft", response_model=SessionDetailOut)
 def generate(
-    session_id: str, request: Request, db: Session = Depends(get_db)
+    session_id: str, request: Request, idempotency_key: IdempotencyKey = None, db: Session = Depends(get_db)
 ) -> dict:
-    session = generate_draft(
-        db,
-        session_id,
-        request.app.state.draft_provider,
-    )
+    execute_inline(db, request.app, session_id, "generate", request_key=idempotency_key)
+    session = get_session_or_404(db, session_id)
     return session_detail_dict(session)
 
 
@@ -48,12 +47,9 @@ def regenerate(
     session_id: str,
     payload: RevisionRequest,
     request: Request,
+    idempotency_key: IdempotencyKey = None,
     db: Session = Depends(get_db),
 ) -> dict:
-    session = regenerate_draft(
-        db,
-        session_id,
-        payload.expected_revision,
-        request.app.state.draft_provider,
-    )
+    execute_inline(db, request.app, session_id, "regenerate", {"expected_revision": payload.expected_revision}, idempotency_key)
+    session = get_session_or_404(db, session_id)
     return session_detail_dict(session)
