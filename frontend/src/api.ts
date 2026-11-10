@@ -1,7 +1,9 @@
-import type {
-  SessionDetail,
-  SessionListResponse,
-} from "./types";
+import {
+  authenticationEnabled,
+  csrfHeaders,
+  assertAuthenticated,
+} from "./auth";
+import type { SessionDetail, SessionListResponse } from "./types";
 
 const API_BASE = "/api";
 
@@ -37,24 +39,28 @@ async function parseError(response: Response): Promise<ApiRequestError> {
   return new ApiRequestError(message, response.status, body?.code);
 }
 
-async function request<T>(
-  path: string,
-  init: RequestInit = {},
-): Promise<T> {
+async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  assertAuthenticated();
   let response: Response;
   try {
-    response = await fetch(`${API_BASE}${path}`, init);
+    response = await fetch(`${API_BASE}${path}`, {
+      ...init,
+      credentials: "same-origin",
+      headers: { ...csrfHeaders(), ...init.headers },
+    });
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") {
       throw error;
     }
     throw new ApiRequestError(
-      "无法连接后端服务，请确认 FastAPI 已在 8000 端口启动。",
+      "服务暂时无法连接，请稍后重试。",
       0,
       "network_error",
     );
   }
   if (!response.ok) {
+    if (response.status === 401 && authenticationEnabled)
+      window.dispatchEvent(new Event("zhenlu:unauthorized"));
     throw await parseError(response);
   }
   return (await response.json()) as T;
@@ -68,7 +74,9 @@ function jsonInit(method: string, body: unknown): RequestInit {
   };
 }
 
-export function listSessions(signal?: AbortSignal): Promise<SessionListResponse> {
+export function listSessions(
+  signal?: AbortSignal,
+): Promise<SessionListResponse> {
   return request<SessionListResponse>("/sessions", { signal });
 }
 
@@ -107,7 +115,10 @@ export function startTranscription(sessionId: string): Promise<SessionDetail> {
   );
 }
 
-export function saveManualTranscript(sessionId: string, text: string): Promise<SessionDetail> {
+export function saveManualTranscript(
+  sessionId: string,
+  text: string,
+): Promise<SessionDetail> {
   return request<SessionDetail>(
     `/sessions/${encodeURIComponent(sessionId)}/transcript/manual`,
     jsonInit("POST", { text }),
@@ -124,7 +135,11 @@ export function generateDraft(sessionId: string): Promise<SessionDetail> {
 export function saveDraftFields(
   sessionId: string,
   expectedRevision: number,
-  fields: Array<{ field_key: string; value: string; accept_suggestion?: boolean }>,
+  fields: Array<{
+    field_key: string;
+    value: string;
+    accept_suggestion?: boolean;
+  }>,
 ): Promise<SessionDetail> {
   return request<SessionDetail>(
     `/sessions/${encodeURIComponent(sessionId)}/draft`,

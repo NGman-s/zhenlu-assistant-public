@@ -1,4 +1,6 @@
-import { useEffect, useState } from "react";
+import { RecordExport } from "./RecordExport";
+import type { TemplateSettings } from "../templates";
+import { useEffect, useRef, useState } from "react";
 import {
   confirmDraft,
   generateDraft,
@@ -9,11 +11,7 @@ import {
   uploadSessionAudio,
 } from "../api";
 import type { BusyAction, SessionDetail } from "../types";
-import {
-  copyToClipboard,
-  errorMessage,
-  statusTone,
-} from "../utils";
+import { errorMessage, statusTone } from "../utils";
 import { AudioPanel } from "./AudioPanel";
 import { DraftPanel } from "./DraftPanel";
 import { SourcePanel } from "./SourcePanel";
@@ -23,6 +21,9 @@ import type { ToastTone } from "./Toasts";
 
 interface WorkspaceProps {
   workspace: SessionDetail;
+  templates: TemplateSettings;
+  deviceDisconnected: boolean;
+  onBusyChange: (busy: boolean) => void;
   notify: (tone: ToastTone, message: string) => void;
   onWorkspaceUpdated: (workspace: SessionDetail) => void;
   onDirtyChange: (dirty: boolean) => void;
@@ -30,10 +31,16 @@ interface WorkspaceProps {
 
 export function Workspace({
   workspace,
+  templates,
+  deviceDisconnected,
+  onBusyChange,
   notify,
   onWorkspaceUpdated,
   onDirtyChange,
 }: WorkspaceProps) {
+  const [exportOpen, setExportOpen] = useState(false);
+  const [mobilePane, setMobilePane] = useState("draft");
+  const actionRunning = useRef(false);
   const [busy, setBusy] = useState<BusyAction>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [selectedFieldKey, setSelectedFieldKey] = useState<string | null>(null);
@@ -45,11 +52,15 @@ export function Workspace({
       return;
     }
     setSelectedFieldKey((current) => {
-      if (current && workspace.draft?.fields.some((field) => field.key === current)) {
+      if (
+        current &&
+        workspace.draft?.fields.some((field) => field.key === current)
+      ) {
         return current;
       }
       return (
-        workspace.draft?.fields.find((field) => field.sources.length > 0)?.key ??
+        workspace.draft?.fields.find((field) => field.sources.length > 0)
+          ?.key ??
         workspace.draft?.fields[0]?.key ??
         null
       );
@@ -61,7 +72,17 @@ export function Workspace({
     task: () => Promise<SessionDetail>,
     successMessage: string | ((next: SessionDetail) => string),
   ): Promise<boolean> {
-    if (busy) return false;
+    if (actionRunning.current) return false;
+    if (deviceDisconnected && action !== "save") {
+      notify("error", "设备已断开，请恢复连接后继续。");
+      return false;
+    }
+    if (workspace.draft?.status === "confirmed") {
+      notify("error", "当前记录已确认，只能查看与导出。");
+      return false;
+    }
+    actionRunning.current = true;
+    onBusyChange(true);
     setBusy(action);
     setActionError(null);
     try {
@@ -81,6 +102,8 @@ export function Workspace({
       return false;
     } finally {
       setBusy(null);
+      actionRunning.current = false;
+      onBusyChange(false);
     }
   }
 
@@ -117,7 +140,11 @@ export function Workspace({
   }
 
   async function handleSave(
-    fields: Array<{ field_key: string; value: string; accept_suggestion?: boolean }>,
+    fields: Array<{
+      field_key: string;
+      value: string;
+      accept_suggestion?: boolean;
+    }>,
     expectedRevision: number,
   ): Promise<boolean> {
     return runAction(
@@ -148,32 +175,17 @@ export function Workspace({
   }
 
   async function handleCopy(): Promise<void> {
-    const text = workspace.latest_record?.text;
-    if (!text) {
-      notify("error", "尚未生成已确认的病历文本。");
-      return;
-    }
-    const copied = await copyToClipboard(text);
-    notify(
-      copied ? "success" : "error",
-      copied ? "已复制已确认病历为纯文本。" : "复制失败，请手动选择文本复制。",
-    );
+    setExportOpen(true);
   }
-
   function handleSelectSource(fieldKey: string) {
     setSelectedFieldKey(fieldKey);
     setSourceFocusToken((token) => token + 1);
-    if (window.matchMedia("(max-width: 1200px)").matches) {
-      window.setTimeout(() => {
-        document
-          .getElementById("source-panel")
-          ?.scrollIntoView({ behavior: "smooth", block: "start" });
-      }, 60);
-    }
+    setMobilePane("source");
   }
 
   const sourceField =
-    workspace.draft?.fields.find((field) => field.key === selectedFieldKey) ?? null;
+    workspace.draft?.fields.find((field) => field.key === selectedFieldKey) ??
+    null;
   const highlightIds = sourceField?.sources.map((source) => source.id) ?? [];
 
   return (
@@ -187,7 +199,9 @@ export function Workspace({
             ) : null}
           </div>
           <p className="workspace-meta">
-            <span title={workspace.id}>会话 {workspace.id.slice(0, 8).toUpperCase()}</span>
+            <span title={workspace.id}>
+              会话 {workspace.id.slice(0, 8).toUpperCase()}
+            </span>
           </p>
         </div>
         <div className="workspace-header-actions">
@@ -239,26 +253,47 @@ export function Workspace({
         </div>
       ) : null}
 
-      {!workspace.transcript || workspace.audio ? <AudioPanel
-        workspace={workspace}
-        busy={busy}
-        onUpload={handleUpload}
-      /> : null}
+      <div className="review-tabs" role="group" aria-label="审核分栏">
+        {[
+          ["transcript", "原文"],
+          ["draft", "病历"],
+          ["source", "来源核对"],
+        ].map(([key, title]) => (
+          <button
+            key={key}
+            className={mobilePane === key ? "active" : ""}
+            aria-pressed={mobilePane === key}
+            onClick={() => setMobilePane(key)}
+          >
+            {title}
+          </button>
+        ))}
+      </div>
+      <div className="review-grid" data-pane={mobilePane}>
+        <div className="review-original">
+          {!workspace.transcript || workspace.audio ? (
+            <AudioPanel
+              workspace={workspace}
+              busy={busy}
+              onUpload={handleUpload}
+            />
+          ) : null}
 
-      <div className="review-grid">
-        <TranscriptPanel
-          workspace={workspace}
-          busy={busy}
-          highlightIds={highlightIds}
-          focusToken={sourceFocusToken}
-          onTranscribe={handleTranscribe}
-          onManualSave={handleManualTranscript}
-          onDirtyChange={onDirtyChange}
-        />
+          <TranscriptPanel
+            workspace={workspace}
+            busy={busy}
+            highlightIds={highlightIds}
+            focusToken={sourceFocusToken}
+            onTranscribe={handleTranscribe}
+            onManualSave={handleManualTranscript}
+            onDirtyChange={onDirtyChange}
+          />
+        </div>
         <DraftPanel
           workspace={workspace}
           busy={busy}
           selectedFieldKey={selectedFieldKey}
+          deviceDisconnected={deviceDisconnected}
           onSelectField={handleSelectSource}
           onGenerate={handleGenerate}
           onSave={handleSave}
@@ -273,7 +308,13 @@ export function Workspace({
           onSelectField={handleSelectSource}
         />
       </div>
-
+      {exportOpen && (
+        <RecordExport
+          workspace={workspace}
+          templates={templates}
+          onClose={() => setExportOpen(false)}
+        />
+      )}
     </div>
   );
 }

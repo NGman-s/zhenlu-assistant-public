@@ -1,5 +1,11 @@
-import { useState, type ChangeEvent, type DragEvent } from "react";
-import type { BusyAction, SessionDetail } from "../types";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type DragEvent,
+} from "react";
+import type { BusyAction, SessionDetail, TranscriptSegment } from "../types";
 import { formatFileSize } from "../utils";
 
 interface AudioPanelProps {
@@ -17,19 +23,108 @@ function AudioGlyph() {
   );
 }
 
-export function AudioPanel({
-  workspace,
-  busy,
-  onUpload,
-}: AudioPanelProps) {
+export function AudioPanel({ workspace, busy, onUpload }: AudioPanelProps) {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [dragActive, setDragActive] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
+  const player = useRef<HTMLAudioElement>(null);
+  const [rangeLabel, setRangeLabel] = useState("整段音频");
+  const range = useRef<{ start: number; end: number } | null>(null);
   const audio = workspace.audio;
+  useEffect(() => {
+    let frame = 0;
+    const element = player.current;
+    function stopAtEnd() {
+      if (!element) return;
+      if (range.current && element.currentTime >= range.current.end) {
+        element.pause();
+        element.currentTime = range.current.end;
+      }
+      if (!element.paused) frame = requestAnimationFrame(stopAtEnd);
+    }
+    const playing = () => {
+      cancelAnimationFrame(frame);
+      stopAtEnd();
+    };
+    const seek = () => {
+      if (
+        element &&
+        range.current &&
+        (element.currentTime < range.current.start ||
+          element.currentTime > range.current.end + 0.1)
+      ) {
+        range.current = null;
+        setRangeLabel("整段音频");
+      }
+    };
+    const pauseForAuth = () => element?.pause();
+    async function sourcePlay(event: Event) {
+      const detail = (
+        event as CustomEvent<{ sessionId: string; source: TranscriptSegment }>
+      ).detail;
+      if (
+        detail.sessionId !== workspace.id ||
+        !element ||
+        !workspace.transcript?.has_reliable_timestamps
+      )
+        return;
+      const { start_ms: start, end_ms: end } = detail.source;
+      if (
+        start == null ||
+        end == null ||
+        !Number.isFinite(start) ||
+        !Number.isFinite(end) ||
+        start < 0 ||
+        end <= start
+      )
+        return;
+      if (element.readyState < 1) {
+        setLocalError("音频正在加载，请稍后再试。");
+        return;
+      }
+      if (end / 1000 > element.duration + 0.1) {
+        setLocalError("来源区间超出录音长度，请核对原文。");
+        return;
+      }
+      range.current = { start: start / 1000, end: end / 1000 };
+      setRangeLabel(
+        `${(start / 1000).toFixed(1)}–${(end / 1000).toFixed(1)} 秒 · 到点暂停`,
+      );
+      element.currentTime = start / 1000;
+      try {
+        await element.play();
+        setLocalError(null);
+      } catch {
+        setLocalError("无法播放录音，请检查音频或点击播放器重试。");
+      }
+    }
+    window.addEventListener("zhenlu:play-source", sourcePlay);
+    window.addEventListener("zhenlu:unauthorized", pauseForAuth);
+    element?.addEventListener("play", playing);
+    element?.addEventListener("seeking", seek);
+    return () => {
+      cancelAnimationFrame(frame);
+      element?.pause();
+      range.current = null;
+      window.removeEventListener("zhenlu:play-source", sourcePlay);
+      window.removeEventListener("zhenlu:unauthorized", pauseForAuth);
+      element?.removeEventListener("play", playing);
+      element?.removeEventListener("seeking", seek);
+    };
+  }, [
+    workspace.id,
+    workspace.audio?.url,
+    workspace.transcript?.has_reliable_timestamps,
+  ]);
   const uploadBusy = busy === "upload";
 
   function chooseFile(file: File | null | undefined) {
     if (!file) return;
+    if (file.size > 50 * 1024 * 1024) {
+      setLocalError("音频不能超过 50 MB。");
+      setSelectedFile(null);
+      return;
+    }
     if (file.size === 0) {
       setSelectedFile(null);
       setLocalError("该文件为空，请选择有效的音频文件。");
@@ -68,6 +163,8 @@ export function AudioPanel({
         <div className="audio-player-wrap">
           <audio
             id="consultation-audio"
+            ref={player}
+            onError={() => setLocalError("音频无法加载，请检查连接后重试。")}
             controls
             preload="metadata"
             src={audio.url}
@@ -75,6 +172,56 @@ export function AudioPanel({
           >
             您的浏览器不支持音频播放。
           </audio>
+          <div className="audio-range-controls">
+            <span>{rangeLabel}</span>
+            <button
+              type="button"
+              className="text-btn"
+              onClick={() => {
+                range.current = null;
+                setRangeLabel("整段音频");
+                if (player.current) {
+                  player.current.currentTime = 0;
+                  void player.current
+                    .play()
+                    .catch(() => setLocalError("无法播放音频"));
+                }
+              }}
+            >
+              整段播放
+            </button>
+            <label>
+              速度
+              <select
+                aria-label="播放速度"
+                defaultValue="1"
+                onChange={(e) => {
+                  if (player.current)
+                    player.current.playbackRate = Number(e.target.value);
+                }}
+              >
+                {[0.75, 1, 1.25, 1.5, 2].map((rate) => (
+                  <option key={rate} value={rate}>
+                    {rate}×
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          {localError && (
+            <p className="field-error" role="alert">
+              {localError}
+              <button
+                className="text-btn"
+                onClick={() => {
+                  player.current?.load();
+                  setLocalError(null);
+                }}
+              >
+                重新加载
+              </button>
+            </p>
+          )}
         </div>
       </section>
     );
@@ -113,7 +260,9 @@ export function AudioPanel({
                 <path d="M12 16V5m0 0-4 4m4-4 4 4M5 15v3a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3" />
               </svg>
             </span>
-            <span className="dropzone-title">拖拽音频到此处，或点击选择文件</span>
+            <span className="dropzone-title">
+              拖拽音频到此处，或点击选择文件
+            </span>
             <span className="dropzone-hint">
               支持 WAV、MP3、M4A、OGG、WEBM、FLAC；单段音频
             </span>

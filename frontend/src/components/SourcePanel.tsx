@@ -16,16 +16,11 @@ export function SourcePanel({
   const audio = workspace.audio;
 
   function seekAndPlay(source: TranscriptSegment) {
-    if (source.start_ms == null) return;
-    const player = document.getElementById("consultation-audio") as
-      | HTMLAudioElement
-      | null;
-    if (!player) return;
-    player.currentTime = source.start_ms / 1000;
-    player.scrollIntoView({ behavior: "smooth", block: "center" });
-    void player.play().catch(() => {
-      // 浏览器可能禁止自动播放，用户仍可手动点击播放器。
-    });
+    window.dispatchEvent(
+      new CustomEvent("zhenlu:play-source", {
+        detail: { sessionId: workspace.id, source },
+      }),
+    );
   }
 
   return (
@@ -99,9 +94,14 @@ export function SourcePanel({
                     </span>
                     <span className="source-seq">原文 {index + 1}</span>
                   </div>
-                  <blockquote className="source-quote">{source.text}</blockquote>
+                  <blockquote className="source-quote">
+                    {source.text}
+                  </blockquote>
                   <div className="source-item-foot">
-                    {source.start_ms != null && source.end_ms != null ? (
+                    {transcript.has_reliable_timestamps &&
+                    source.start_ms != null &&
+                    source.end_ms != null &&
+                    source.end_ms > source.start_ms ? (
                       <>
                         <span className="source-time">
                           {formatTimestamp(source.start_ms)}–
@@ -113,7 +113,7 @@ export function SourcePanel({
                             className="text-btn"
                             onClick={() => seekAndPlay(source)}
                           >
-                            定位播放
+                            回听此段
                           </button>
                         ) : null}
                       </>
@@ -125,7 +125,6 @@ export function SourcePanel({
               ))}
             </div>
           )}
-
         </div>
       )}
     </aside>

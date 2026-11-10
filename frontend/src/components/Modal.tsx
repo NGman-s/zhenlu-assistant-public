@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useRef, useId, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 interface ModalProps {
@@ -18,8 +18,41 @@ export function Modal({
   onClose,
   closeDisabled = false,
 }: ModalProps) {
+  const panel = useRef<HTMLElement>(null);
+  const titleId = useId();
+  useEffect(() => {
+    const previous = document.activeElement as HTMLElement | null;
+    panel.current?.focus();
+    return () => {
+      if (!document.body.classList.contains("authentication-locked"))
+        previous?.focus();
+    };
+  }, []);
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
+      if (document.body.classList.contains("authentication-locked")) return;
+      if (event.key === "Tab") {
+        const controls = panel.current?.querySelectorAll<HTMLElement>(
+          "button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),a[href]",
+        );
+        if (!controls?.length) {
+          event.preventDefault();
+          return;
+        }
+        const first = controls[0],
+          last = controls[controls.length - 1];
+        if (
+          event.shiftKey &&
+          (document.activeElement === first ||
+            document.activeElement === panel.current)
+        ) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
+      }
       if (event.key === "Escape" && !closeDisabled) {
         onClose();
       }
@@ -44,13 +77,15 @@ export function Modal({
     >
       <section
         className="modal"
+        ref={panel}
+        tabIndex={-1}
         role="dialog"
         aria-modal="true"
-        aria-labelledby="modal-title"
+        aria-labelledby={titleId}
       >
         <header className="modal-header">
           <div>
-            <h2 id="modal-title">{title}</h2>
+            <h2 id={titleId}>{title}</h2>
             {subtitle ? <p className="modal-subtitle">{subtitle}</p> : null}
           </div>
           <button
