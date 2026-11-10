@@ -1,0 +1,25 @@
+﻿# SQLite 数据库及其临时文件
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+
+# Python 缓存
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# 虚拟环境
+.venv/
+venv/
+
+# 环境变量与密钥
+.env
+.env.*
+!.env.example
+
+# 编辑器和系统文件
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
