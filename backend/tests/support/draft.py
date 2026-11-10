@@ -4,11 +4,11 @@ import time
 
 from app.constants import (
     FIELD_DEFINITIONS,
-    MOCK_DRAFT_NOTICE,
     UNMENTIONED,
 )
 from app.providers.base import DraftResult, GeneratedField, TranscriptDocument
-from app.providers.demo_data import DemoCatalog
+from tests.support.demo_data import DemoCatalog
+from tests.support import MOCK_DRAFT_NOTICE
 
 
 class MockDraftProvider:

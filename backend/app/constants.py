@@ -58,12 +58,3 @@ ALLOWED_AUDIO_EXTENSIONS: dict[str, str] = {
     ".webm": "audio/webm",
     ".flac": "audio/flac",
 }
-
-MOCK_ASR_NOTICE = (
-    "当前为模拟转写结果：文本来自内置虚构病例，未调用真实语音识别服务。"
-    "示例音频中的时间信息来自示例数据生成记录；普通上传不提供可靠时间戳。"
-)
-MOCK_DRAFT_NOTICE = (
-    "当前为模拟病历草稿：由内置规则从转写文本映射生成，未调用真实大模型。"
-    "请医生逐项核对，尤其是未提及信息与来源原文。"
-)

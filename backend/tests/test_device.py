@@ -12,7 +12,7 @@ from app.main import create_app
 
 
 def write_state(path: Path, connected: bool, heartbeat: float | None = None) -> None:
-    path.write_text(json.dumps({"connected": connected, "mode": "simulation", "heartbeat": heartbeat if heartbeat is not None else time.time()}), encoding="utf-8")
+    path.write_text(json.dumps({"connected": connected, "mode": "identity-prototype", "heartbeat": heartbeat if heartbeat is not None else time.time()}), encoding="utf-8")
 
 
 def test_device_state_fails_closed_when_missing_stale_or_invalid(tmp_path: Path) -> None:
@@ -35,7 +35,7 @@ def test_disconnect_blocks_new_actions_but_allows_saving_edits(settings: Setting
     with TestClient(app) as client:
         session = client.post("/api/sessions", json={"patient_name": "虚构患者"}).json()
         sid = session["id"]
-        audio = Path(__file__).resolve().parents[2] / "sample-data" / "mock-consultation-case-01.wav"
+        audio = Path(__file__).resolve().parent / "fixtures" / "mock-consultation-case-01.wav"
         with audio.open("rb") as handle:
             assert client.post(f"/api/sessions/{sid}/audio", files={"file": (audio.name, handle, "audio/wav")}).status_code == 201
         assert client.post(f"/api/sessions/{sid}/transcript/manual", json={"text": "测试问诊"}).status_code == 200

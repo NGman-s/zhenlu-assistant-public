@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { createSession, getHealth, getSession, listDemoCases, listSessions } from "./api";
-import type { DemoCase, SessionDetail, SessionSummary } from "./types";
+import { createSession, getSession, listSessions } from "./api";
+import type { SessionDetail, SessionSummary } from "./types";
 import { errorMessage } from "./utils";
 import { NewSessionModal } from "./components/NewSessionModal";
 import { Onboarding } from "./components/Onboarding";
@@ -61,7 +61,6 @@ export default function App() {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [workspace, setWorkspace] = useState<SessionDetail | null>(null);
-  const [demoCases, setDemoCases] = useState<DemoCase[]>([]);
   const [bootLoading, setBootLoading] = useState(true);
   const [workspaceLoading, setWorkspaceLoading] = useState(false);
   const [pageError, setPageError] = useState<string | null>(null);
@@ -69,8 +68,6 @@ export default function App() {
   const [bootNonce, setBootNonce] = useState(0);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [dirty, setDirty] = useState(false);
-  const [asrIsMock, setAsrIsMock] = useState<boolean | null>(null);
-  const [draftIsMock, setDraftIsMock] = useState<boolean | null>(null);
   const [device, setDevice] = useState<{ managed: boolean; connected: boolean; mode: string } | null>(null);
 
   useEffect(() => {
@@ -124,18 +121,6 @@ export default function App() {
 
     async function bootstrap() {
       try {
-        const health = await getHealth();
-        if (!cancelled) {
-          setAsrIsMock(health.asr_is_mock);
-          setDraftIsMock(health.draft_is_mock);
-        }
-      } catch {
-        if (!cancelled) {
-          setAsrIsMock(null);
-          setDraftIsMock(null);
-        }
-      }
-      try {
         const data = await listSessions();
         if (cancelled) return;
         setSessions(data.items);
@@ -149,15 +134,6 @@ export default function App() {
         if (!cancelled) setPageError(errorMessage(error));
       } finally {
         if (!cancelled) setBootLoading(false);
-      }
-
-      try {
-        const cases = await listDemoCases();
-        if (!cancelled) setDemoCases(cases.items);
-      } catch (error) {
-        if (!cancelled) {
-          notify("error", `示例病例加载失败：${errorMessage(error)}`);
-        }
       }
     }
 
@@ -269,7 +245,7 @@ export default function App() {
         {device?.managed ? (
           <div className={`device-banner${device.connected ? "" : " disconnected"}`} role="status" aria-live="polite">
             {device.connected
-              ? `设备已连接 · ${device.mode === "simulation" ? "模拟插拔" : device.mode === "identity-prototype" ? "签名验证原型" : "USB 检测"}（尚未接入正式授权）`
+              ? `设备已连接 · ${device.mode === "identity-prototype" ? "签名验证原型" : "USB 检测"}（尚未接入正式授权）`
               : "设备已断开，新的操作已暂停。本地服务即将关闭；请及时保存或复制未保存的内容。"}
           </div>
         ) : null}
@@ -288,12 +264,9 @@ export default function App() {
           <Workspace
             key={workspace.id}
             workspace={workspace}
-            demoCases={demoCases}
             notify={notify}
             onWorkspaceUpdated={handleWorkspaceUpdated}
             onDirtyChange={setDirty}
-            asrIsMock={asrIsMock}
-            draftIsMock={draftIsMock}
           />
         ) : (
           <WorkspaceSkeleton />

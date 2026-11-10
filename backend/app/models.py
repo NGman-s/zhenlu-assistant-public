@@ -105,7 +105,7 @@ class Transcript(Base):
         String(32), ForeignKey("audio_files.id", ondelete="CASCADE"), nullable=True
     )
     provider: Mapped[str] = mapped_column(String(80))
-    is_mock: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    is_mock: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     language: Mapped[str] = mapped_column(String(20), default="zh-CN")
     notice: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
@@ -148,7 +148,7 @@ class RecordDraft(Base):
         String(32), ForeignKey("transcripts.id", ondelete="CASCADE")
     )
     provider: Mapped[str] = mapped_column(String(80))
-    is_mock: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    is_mock: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     notice: Mapped[str] = mapped_column(Text, default="")
     revision: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     status: Mapped[str] = mapped_column(

@@ -42,7 +42,7 @@ export function NewSessionModal({ onClose, onCreate }: NewSessionModalProps) {
   return (
     <Modal
       title="新建问诊会话"
-      subtitle="为本次虚构问诊建立记录，可输入文字或上传音频。"
+      subtitle="为本次问诊建立记录，可输入文字或上传音频。"
       onClose={onClose}
       closeDisabled={submitting}
       footer={
@@ -75,12 +75,12 @@ export function NewSessionModal({ onClose, onCreate }: NewSessionModalProps) {
             className="text-input"
             value={patientName}
             onChange={(event) => setPatientName(event.target.value)}
-            placeholder="例如：演示患者 A"
+            placeholder="例如：患者 A"
             maxLength={80}
             autoFocus
             disabled={submitting}
           />
-          <span className="form-help">请使用虚构称呼，不要填写真实姓名。</span>
+          <span className="form-help">建议使用患者代号。</span>
         </label>
 
         <label className="form-field">
@@ -89,7 +89,7 @@ export function NewSessionModal({ onClose, onCreate }: NewSessionModalProps) {
             className="text-input"
             value={patientRef}
             onChange={(event) => setPatientRef(event.target.value)}
-            placeholder="例如：DEMO-2026-001"
+            placeholder="例如：2026-001"
             maxLength={120}
             disabled={submitting}
           />
@@ -102,7 +102,7 @@ export function NewSessionModal({ onClose, onCreate }: NewSessionModalProps) {
         ) : null}
 
         <div className="notice notice-muted">
-          本阶段不接入真实患者数据。所有姓名、病情和音频都应来自虚构演示素材。
+          当前用于开发验证。音频和问诊文字将发送至模型服务，请确认资料处理授权。
         </div>
       </form>
     </Modal>

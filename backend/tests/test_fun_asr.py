@@ -14,7 +14,6 @@ from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
 from app.config import Settings
-from app.providers.demo_data import DemoCatalog
 from app.providers.fun_asr import AsrProviderError, FunAsrProvider
 from app.providers.registry import build_asr_provider
 
@@ -136,7 +135,6 @@ def provider_for(connection: FakeConnection, **overrides: Any) -> FunAsrProvider
 
 
 def test_registry_selects_fun_asr() -> None:
-    sample_data = Path(__file__).resolve().parents[2] / "sample-data"
     settings = Settings(
         _env_file=None,
         asr_provider="fun-asr",
@@ -145,7 +143,7 @@ def test_registry_selects_fun_asr() -> None:
         fun_asr_api_key=SecretStr("test-secret"),
     )
 
-    provider = build_asr_provider(settings, DemoCatalog(sample_data))
+    provider = build_asr_provider(settings)
 
     assert provider.name == PROVIDER_NAME
     assert provider.is_mock is False

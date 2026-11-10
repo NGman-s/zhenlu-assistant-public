@@ -1,9 +1,9 @@
-# 诊录助手接口说明（v0.1）
+# 诊录助手接口说明（v0.2）
 
 - Base URL：`http://127.0.0.1:8000/api`
 - 数据格式：请求与响应均为 UTF-8 JSON；音频上传使用 `multipart/form-data`。
 - 交互式文档：启动后端后访问 `http://127.0.0.1:8000/docs`。
-- 默认语音识别和病历草稿均为 mock；语音识别可配置 Fun-ASR 实时服务，草稿可配置千问服务，响应中的 `is_mock` 和 `notice` 标识结果来源。
+- 语音识别使用 Fun-ASR，草稿和会话问答使用千问，响应中的 `provider` 和 `notice` 标识结果来源。`is_mock` 保留为历史数据来源标记，新手动录入及云端结果为 false。
 
 ## 1. 错误格式
 
@@ -65,8 +65,8 @@
 
 - 所有 API 时间字段为 UTC ISO 8601 字符串，例如 `2026-10-27T08:51:00Z`。
 - 转写句子 `start_ms` / `end_ms` 可为 `null`。当识别服务没有可靠时间信息时必须为 `null`，服务端和界面都不会填充推测值。
-- 示例音频的时间戳来自合成音频生成记录，仅在文件名匹配且内容与内置示例一致时使用；其他上传的 mock 转写没有可靠时间戳。
-- 草稿字段的 `sources` 是从转写句子中按 ID 解析出的原文。真实模型返回不属于当前转写的来源 ID 时，服务端拒绝结果；旧 mock 结果沿用过滤规则。
+- 时间戳使用语音服务实际返回的有效时间区间，缺失时为空；手动录入无音频时间戳。
+- 草稿字段的 `sources` 是从转写句子中按 ID 解析出的原文。模型返回不属于当前转写的来源 ID 时，服务端拒绝结果。
 
 ### 2.2 草稿来源与版本
 
@@ -94,7 +94,7 @@
 | `has_audio` / `has_transcript` / `has_draft` | bool | 资源是否存在 |
 | `confirmed_version` | int | 已确认版本号 |
 | `audio` | object? | 音频元数据与播放 URL |
-| `transcript` | object? | 转写、模拟标识与逐句内容 |
+| `transcript` | object? | 转写、处理来源与逐句内容 |
 | `draft` | object? | 五字段草稿、来源、建议和 revision |
 | `latest_record` | object? | 最近一次确认记录快照与纯文本 |
 
@@ -103,7 +103,7 @@
 ```json
 {
   "id": "…",
-  "filename": "mock-consultation-case-01.wav",
+  "filename": "consultation.wav",
   "content_type": "audio/wav",
   "size_bytes": 3409356,
   "duration_ms": 106446,
@@ -117,10 +117,10 @@
 ```json
 {
   "id": "…",
-  "provider": "mock-consultation-asr-v1",
-  "is_mock": true,
+  "provider": "fun-asr:fun-asr-realtime-2026-02-28",
+  "is_mock": false,
   "language": "zh-CN",
-  "notice": "当前为模拟转写结果：…",
+  "notice": "由 Fun-ASR 转写，请核对原文。",
   "created_at": "2026-10-27T08:51:10Z",
   "has_reliable_timestamps": true,
   "segments": [
@@ -141,9 +141,9 @@
 ```json
 {
   "id": "…",
-  "provider": "mock-rule-based-draft-v1",
-  "is_mock": true,
-  "notice": "当前为模拟病历草稿：…",
+  "provider": "qwen:qwen3.7-plus",
+  "is_mock": false,
+  "notice": "由千问生成，请医生核对。",
   "revision": 1,
   "status": "editing",
   "created_at": "2026-10-27T08:51:20Z",
@@ -218,11 +218,14 @@
 ```json
 {
   "status": "ok",
-  "asr_provider": "mock-consultation-asr-v1",
-  "asr_is_mock": true,
-  "draft_provider": "mock-rule-based-draft-v1",
-  "draft_is_mock": true,
-  "mock_mode": true
+  "asr_provider": "fun-asr:fun-asr-realtime-2026-02-28",
+  "asr_is_mock": false,
+  "draft_provider": "qwen:qwen3.7-plus",
+  "draft_is_mock": false,
+  "assistant_provider": "qwen-assistant:qwen3.7-plus",
+  "assistant_is_mock": false,
+  "job_worker_enabled": true,
+  "dialogue_provider": "explicit-dialogue-rules-v1"
 }
 ```
 
@@ -280,7 +283,7 @@
 
 ```bash
 curl -X POST "http://127.0.0.1:8000/api/sessions/{session_id}/audio" \
-  -F "file=@sample-data/mock-consultation-case-01.wav"
+  -F "file=@path/to/consultation.wav"
 ```
 
 - 允许扩展名：`.wav`、`.mp3`、`.m4a`、`.ogg`、`.webm`、`.flac`。
@@ -298,12 +301,9 @@ curl -X POST "http://127.0.0.1:8000/api/sessions/{session_id}/audio" \
 
 #### `POST /sessions/{session_id}/transcript`
 
-触发当前配置的转写提供方。mock 阶段为同步请求，返回 `SessionDetail`。
+调用 Fun-ASR 转写当前音频，同步接口返回 `SessionDetail`。
 
 - 前置条件：会话已有音频，且尚无转写。
-- 上传示例音频文件名时，mock ASR 返回对应虚构对话的真实示例时间戳。
-- 上传其他文件时，mock ASR 使用默认虚构病例，所有时间戳为 `null`，并在 `notice` 中说明。
-- `transcript.is_mock=true`，`transcript.provider` 标识模拟服务。
 - `ZHENLU_ASR_PROVIDER=fun-asr` 时，后端通过 WebSocket 将当前音频分片发送至 Fun-ASR 实时接口，仅保留 `sentence_end=true` 的最终句子，并使用接口返回的 `begin_time`/`end_time` 作为毫秒时间戳。
 - Fun-ASR 实时结果标记 `transcript.is_mock=false`，`provider` 为 `fun-asr:<model>`；该接口未返回说话人信息，所有句子 `speaker` 为 `未知`。
 - Fun-ASR 的 WAV 输入必须为单声道 16-bit PCM；非 WAV 格式使用配置的采样率，必须与实际音频一致。当前支持 `wav`、`mp3`、`aac`、`amr`、`opus`、`speex`；上传允许的 `ogg`、`webm`、`flac`、`m4a` 会返回 `502 fun_asr_unsupported_format`，需要先转码。
@@ -322,7 +322,6 @@ curl -X POST "http://127.0.0.1:8000/api/sessions/{session_id}/audio" \
 
 - 五个字段全部返回；未提及的信息值为“未提及”，不会改成“无”。
 - 服务端校验来源句子 ID；真实模型出现非法引用、缺失字段或无来源事实时拒绝整个结果。
-- `is_mock=true` 表示由内置规则生成，未调用真实大模型。
 - 千问提供方会发送对话文本及句子 ID，并要求严格结构和有效来源；无效结果返回错误，不创建草稿。
 
 #### `GET /sessions/{session_id}/draft`
@@ -401,17 +400,7 @@ curl -X POST "http://127.0.0.1:8000/api/sessions/{session_id}/audio" \
 
 未确认时返回 `404 record_not_confirmed`。
 
-纯文本包含患者称呼、会话编号、确认时间、五个字段和说明行。mock 数据生成的文本会明确写有仅供演示的说明。
-
-### 3.7 演示数据（开发辅助）
-
-#### `GET /demo/cases`
-
-返回内置虚构病例列表和音频 URL，用于页面“载入示例病例”。
-
-#### `GET /demo/cases/{case_key}/audio`
-
-返回示例 WAV 音频。仅用于开发演示。
+纯文本包含患者称呼、会话编号、确认时间、五个字段和说明行。历史模拟数据生成的确认文本保留原说明。
 
 ## 4. 状态
 
@@ -419,9 +408,9 @@ curl -X POST "http://127.0.0.1:8000/api/sessions/{session_id}/audio" \
 | --- | --- |
 | `awaiting_audio` | 会话已创建，待录入文字或上传音频 |
 | `audio_ready` | 音频已保存，待转写 |
-| `transcribing` | 转写处理中（mock 为同步请求，状态短暂存在） |
+| `transcribing` | 转写处理中 |
 | `transcribed` | 转写完成，待生成草稿 |
-| `generating_draft` | 草稿生成中（mock 为同步请求） |
+| `generating_draft` | 草稿生成中 |
 | `draft_ready` | 草稿待医生审核 |
 | `confirmed` | 已确认并锁定 |
 | `failed` | 最近一次提供方处理失败，可通过 `error_message` 查看原因 |
@@ -434,42 +423,15 @@ awaiting_audio → audio_ready → transcribed → draft_ready → confirmed
 
 任一提供方失败时进入 `failed`；对应资源尚未写入，修复或重试后可重新执行当前步骤。
 
-## 5. 替换真实服务
+## 5. 服务配置
 
-代码中的提供方协议位于 `backend/app/providers/base.py`：
+语音转写通过 `TranscriptionProvider` 接入 Fun-ASR，草稿通过 `DraftGenerationProvider` 接入千问。配置见 `backend/.env.example` 和 [qwen.md](qwen.md)。提供方参数通过 Settings 校验，启动时创建服务实例。环境变量优先于 `.env`。
 
-- `TranscriptionProvider.transcribe(audio_path, original_filename) -> AsrResult`
-- `DraftGenerationProvider.generate(transcript) -> DraftResult`
+接入其他服务时，需同时更新提供方工厂和配置允许值，并验证音频规范、来源 ID、时间戳、超时与调用计量。
 
-在 `backend/app/providers/registry.py` 注册后，通过环境变量选择：
+### 手动问诊内容
 
-```bash
-ZHENLU_ASR_PROVIDER=<provider-name>
-ZHENLU_DRAFT_PROVIDER=<provider-name>
-```
-
-Fun-ASR 实时转写提供方已实现，将 `ZHENLU_ASR_PROVIDER` 设为 `fun-asr` 即可启用。它使用 `run-task`/`finish-task` WebSocket 协议，只保存最终句子，并如实标记 `is_mock=false`。自动化测试使用本地模拟 WebSocket；正式启用前仍需使用真实密钥验证账号权限、音频格式、延迟、费用、数据合规和失败恢复。
-
-接入其他真实 ASR，或正式启用 Fun-ASR 前，需要确认的信息：
-
-1. 服务商、模型与接口地址，鉴权方式（密钥只通过环境变量或密钥管理服务提供）。
-2. 支持的音频容器、采样率、单文件时长/大小和并发限制。
-3. 是否返回句子或词级时间戳；若返回，应以采样位置或毫秒映射到原录音，并保证可回听定位。
-4. 是否支持说话人分离；首版也可只用“医生/患者/未知”。
-5. 超时、限流、重试、错误码与计费规则。真实调用通常比 mock 慢，需要改为后台任务、任务轮询和更强的失败恢复，而不是当前同步请求。
-
-千问草稿提供方已经实现，配置见 [qwen.md](qwen.md)。真实服务使用时仍需确认：
-
-1. 服务商、模型版本、接口协议和鉴权方式。
-2. 结构化输出约束（JSON schema）与五字段定义。
-3. 是否支持逐句来源 ID 引用；提示词必须把转写句子 ID 提供给模型，服务端仍会校验来源。
-4. 未提及信息的统一输出规则（“未提及”，不得推断为“无”）。
-5. 延迟、上下文长度、费用、日志留存和数据合规要求。
-
-密钥、真实患者数据、真实录音均不应出现在仓库、测试夹具或前端代码中。
-# 手动问诊内容
-
-`POST /api/sessions/{session_id}/transcript/manual` 接收 `{"text":"第一段\n第二段"}`。音频可选，按非空行保存，最多 200 行、20000 字符；已有转写或正在处理时不可提交。手动内容不含音频时间戳。使用默认模拟草稿服务时，生成的是需要手动填写的模板；启用千问后可生成草稿。当前仅用于虚构病例演示。
+`POST /api/sessions/{session_id}/transcript/manual` 接收 `{"text":"第一段\n第二段"}`。音频可选，按非空行保存，最多 200 行、20000 字符；已有转写或正在处理时不可提交。手动内容不含音频时间戳。保存后通过千问生成带来源的五字段草稿，手动输入记录的 `is_mock=false`。
 
 
 ## 6. 后台任务、角色整理与会话助手（2026-11-04）

@@ -27,7 +27,7 @@ export function StatusStepper({
   if (!hasAudio) {
     const steps: Step[] = [
       { label: "创建会话", state: "done" },
-      { label: hasTranscript ? "录入文字" : "录入文字或音频", state: hasTranscript ? "done" : "active", busy: busy === "transcribe" || busy === "upload" || busy === "demo_upload" },
+      { label: hasTranscript ? "录入文字" : "录入文字或音频", state: hasTranscript ? "done" : "active", busy: busy === "transcribe" || busy === "upload" },
       { label: "草稿生成", state: hasDraft ? "done" : hasTranscript ? "active" : "pending", busy: busy === "generate" },
       { label: confirmed ? "已确认" : "审核确认", state: confirmed ? "done" : hasDraft ? "active" : "pending", busy: busy === "confirm" },
     ];
@@ -47,7 +47,7 @@ export function StatusStepper({
     {
       label: "上传音频",
       state: hasAudio ? "done" : "active",
-      busy: busy === "upload" || busy === "demo_upload",
+      busy: busy === "upload",
     },
     {
       label: "语音转写",

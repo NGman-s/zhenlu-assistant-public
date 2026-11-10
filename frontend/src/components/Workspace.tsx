@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import {
   confirmDraft,
-  fetchDemoAudio,
   generateDraft,
   regenerateDraft,
   saveManualTranscript,
@@ -9,7 +8,7 @@ import {
   startTranscription,
   uploadSessionAudio,
 } from "../api";
-import type { BusyAction, DemoCase, SessionDetail } from "../types";
+import type { BusyAction, SessionDetail } from "../types";
 import {
   copyToClipboard,
   errorMessage,
@@ -24,22 +23,16 @@ import type { ToastTone } from "./Toasts";
 
 interface WorkspaceProps {
   workspace: SessionDetail;
-  demoCases: DemoCase[];
   notify: (tone: ToastTone, message: string) => void;
   onWorkspaceUpdated: (workspace: SessionDetail) => void;
   onDirtyChange: (dirty: boolean) => void;
-  asrIsMock: boolean | null;
-  draftIsMock: boolean | null;
 }
 
 export function Workspace({
   workspace,
-  demoCases,
   notify,
   onWorkspaceUpdated,
   onDirtyChange,
-  asrIsMock,
-  draftIsMock,
 }: WorkspaceProps) {
   const [busy, setBusy] = useState<BusyAction>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -99,25 +92,11 @@ export function Workspace({
     );
   }
 
-  function handleLoadDemo(demoCase: DemoCase) {
-    void runAction(
-      "demo_upload",
-      async () => {
-        const blob = await fetchDemoAudio(demoCase);
-        const file = new File([blob], demoCase.audio_filename, {
-          type: blob.type || "audio/wav",
-        });
-        return uploadSessionAudio(workspace.id, file);
-      },
-      `已载入示例病例「${demoCase.title}」，可以开始模拟转写。`,
-    );
-  }
-
   function handleTranscribe() {
     void runAction(
       "transcribe",
       () => startTranscription(workspace.id),
-      "模拟转写已完成，请核对对话内容。",
+      "转写已完成，请核对对话内容。",
     );
   }
 
@@ -125,7 +104,7 @@ export function Workspace({
     return runAction(
       "transcribe",
       () => saveManualTranscript(workspace.id, text),
-      "问诊内容已保存，请继续填写病历。",
+      "问诊内容已保存，可以生成病历草稿。",
     );
   }
 
@@ -133,9 +112,7 @@ export function Workspace({
     void runAction(
       "generate",
       () => generateDraft(workspace.id),
-      (next) => next.draft?.provider === "manual-template"
-        ? "病历模板已创建，请逐项填写和核对。"
-        : next.draft?.is_mock ? "模拟病历草稿已生成，请逐项核对。" : "病历草稿已生成，请逐项核对。",
+      "病历草稿已生成，请逐项核对。",
     );
   }
 
@@ -224,10 +201,8 @@ export function Workspace({
         </div>
       </header>
 
-      <p className="demo-notice">
-        {asrIsMock === false
-          ? "当前仅用于虚构病例演示；上传的音频将发送至已配置的语音识别服务。请勿上传真实患者信息。"
-          : "当前仅用于虚构病例演示，音频转写为模拟结果。请勿上传真实患者信息。"}
+      <p className="service-notice">
+        音频和问诊文字将发送至已配置的模型服务，病历草稿须经医生核对确认。
       </p>
 
       <StatusStepper
@@ -266,10 +241,8 @@ export function Workspace({
 
       {!workspace.transcript || workspace.audio ? <AudioPanel
         workspace={workspace}
-        demoCases={demoCases}
         busy={busy}
         onUpload={handleUpload}
-        onLoadDemo={handleLoadDemo}
       /> : null}
 
       <div className="review-grid">
@@ -278,7 +251,6 @@ export function Workspace({
           busy={busy}
           highlightIds={highlightIds}
           focusToken={sourceFocusToken}
-          asrIsMock={asrIsMock}
           onTranscribe={handleTranscribe}
           onManualSave={handleManualTranscript}
           onDirtyChange={onDirtyChange}
@@ -294,7 +266,6 @@ export function Workspace({
           onConfirm={handleConfirm}
           onCopy={handleCopy}
           onDirtyChange={onDirtyChange}
-          draftIsMock={draftIsMock}
         />
         <SourcePanel
           workspace={workspace}

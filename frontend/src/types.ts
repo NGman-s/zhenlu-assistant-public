@@ -12,7 +12,6 @@ export type FieldOrigin = "ai" | "doctor";
 
 export type BusyAction =
   | "upload"
-  | "demo_upload"
   | "transcribe"
   | "generate"
   | "save"
@@ -124,17 +123,4 @@ export interface SessionDetail extends SessionSummary {
 
 export interface SessionListResponse {
   items: SessionSummary[];
-}
-
-export interface DemoCase {
-  key: string;
-  title: string;
-  description: string;
-  audio_filename: string;
-  audio_url: string;
-  dialogue_preview: string;
-}
-
-export interface DemoCaseListResponse {
-  items: DemoCase[];
 }

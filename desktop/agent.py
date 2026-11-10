@@ -4,13 +4,11 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import queue
 import re
 import socket
 import subprocess
 import sys
 import tempfile
-import threading
 import time
 import urllib.error
 import urllib.request
@@ -59,14 +57,6 @@ def health_ready(port: int) -> bool:
         return False
 
 
-def input_loop(commands: queue.Queue[str]) -> None:
-    try:
-        while True:
-            commands.put(input().strip().lower())
-    except (EOFError, KeyboardInterrupt):
-        commands.put("quit")
-
-
 def write_state(path: Path, connected: bool, mode: str) -> None:
     temp_path = path.with_suffix(".tmp")
     temp_path.write_text(json.dumps({"connected": connected, "mode": mode, "heartbeat": time.time()}), encoding="utf-8")
@@ -93,12 +83,8 @@ def run(args: argparse.Namespace) -> int:
         print(f"端口 {args.port} 已被占用；不会接管或关闭已有程序。", flush=True)
         return 1
 
-    commands: queue.Queue[str] = queue.Queue()
     detection_errors: tuple[type[Exception], ...] = (OSError, ValueError, subprocess.SubprocessError)
-    if args.simulate:
-        threading.Thread(target=input_loop, args=(commands,), daemon=True).start()
-        print("模拟模式：输入 i 插入、o 拔出、q 退出，然后按回车。此模式不提供授权保护。", flush=True)
-    elif args.usb:
+    if args.usb:
         print(f"USB 检测模式：VID={args.vid} PID={args.pid}。仅检测存在，不验证设备身份。按 Ctrl+C 退出。", flush=True)
     else:
         from device_identity import DeviceError, load_public
@@ -110,7 +96,7 @@ def run(args: argparse.Namespace) -> int:
             print(f"无法加载已登记设备公钥：{exc}", flush=True)
             return 1
         print("开发验证模式：使用已登记公钥检查设备签名；这不是正式授权系统。", flush=True)
-    mode = "simulation" if args.simulate else "usb-detection" if args.usb else "identity-prototype"
+    mode = "usb-detection" if args.usb else "identity-prototype"
     connected = False
     previous = False
     process: subprocess.Popen | None = None
@@ -122,19 +108,7 @@ def run(args: argparse.Namespace) -> int:
         state_path = Path(temp_dir) / "state.json"
         try:
             while True:
-                if args.simulate:
-                    try:
-                        while True:
-                            command = commands.get_nowait()
-                            if command in ("q", "quit"):
-                                return 0
-                            if command in ("i", "insert"):
-                                connected = True
-                            elif command in ("o", "remove"):
-                                connected = False
-                    except queue.Empty:
-                        pass
-                elif time.monotonic() - last_poll >= 2:
+                if time.monotonic() - last_poll >= 2:
                     last_poll = time.monotonic()
                     try:
                         if args.identity:
@@ -194,7 +168,6 @@ def run(args: argparse.Namespace) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(description="诊录助手 USB 连接程序（开发原型，非授权系统）")
     mode = parser.add_mutually_exclusive_group(required=True)
-    mode.add_argument("--simulate", action="store_true", help="手动模拟插入/拔出")
     mode.add_argument("--usb", action="store_true", help="按 VID/PID 检测 Windows USB 设备")
     mode.add_argument("--identity", action="store_true", help="使用登记公钥验证 ESP32 开发固件")
     parser.add_argument("--vid", type=parse_hex_id)

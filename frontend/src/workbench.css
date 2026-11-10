@@ -49,7 +49,7 @@ body { background: var(--bg); }
 .session-version { color: var(--accent); background: var(--accent-soft); border: 0; }
 .session-empty, .session-empty p { color: var(--muted); }
 .sidebar-footer { padding: 13px 4px 0; border-color: var(--line); }
-.mock-mode-pill { padding: 0; margin-bottom: 5px; color: #6c572e; background: transparent; border: 0; border-radius: 0; font-size: 11px; letter-spacing: 0; }
+.workspace-mode-pill { padding: 0; margin-bottom: 5px; color: #6c572e; background: transparent; border: 0; border-radius: 0; font-size: 11px; letter-spacing: 0; }
 .sidebar-footer p { color: var(--muted); font-size: 11px; }
 
 /* Patient and progress are compact so the review remains visible. */
@@ -60,7 +60,7 @@ body { background: var(--bg); }
 .workspace-header-actions { padding-top: 0; }
 .status-label { letter-spacing: 0; }
 .status-chip { padding: 5px 10px; border-radius: 8px; box-shadow: none; }
-.demo-notice { margin: 0 0 12px; color: #6c5b36; font-size: 12px; line-height: 1.6; }
+.service-notice { margin: 0 0 12px; color: #6c5b36; font-size: 12px; line-height: 1.6; }
 .stepper { padding: 12px 16px; margin-bottom: 12px; background: #fff; border-radius: 12px; }
 .step { font-size: 12px; }
 .step-dot { width: 19px; height: 19px; font-size: 10px; }
@@ -73,7 +73,7 @@ body { background: var(--bg); }
 .card-subtitle { margin-top: 3px; color: var(--muted); font-size: 12px; }
 .badge { font-size: 11px; letter-spacing: 0; border-radius: 6px; }
 .badge-ai { color: #61737a; background: #f0f4f5; border-color: #e2e9eb; }
-.badge-mock { color: #775a21; background: #fcf7eb; border-color: #ede0c4; }
+.badge-history { color: #775a21; background: #fcf7eb; border-color: #ede0c4; }
 .btn { min-height: 36px; border-radius: 8px; font-size: 13px; }
 .btn-large { min-height: 40px; border-radius: 9px; }
 .btn-confirm { background: var(--accent); border-color: var(--accent); }
@@ -88,9 +88,6 @@ body { background: var(--bg); }
 .dropzone { min-height: 140px; background: #f8fafb; border-radius: 10px; }
 .dropzone:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
 .dropzone-icon { border-radius: 9px; }
-.sample-case { border-radius: 9px; box-shadow: none; }
-.sample-index { border-radius: 6px; }
-
 .review-grid {
   grid-template-columns: minmax(240px, 1fr) minmax(310px, 1.35fr) minmax(230px, .82fr);
   gap: 0;
@@ -103,9 +100,6 @@ body { background: var(--bg); }
 .review-grid > .card { min-width: 0; border: 0; border-radius: 0; box-shadow: none; }
 .review-grid > .card + .card { border-left: 1px solid var(--line); }
 .review-grid > .source-card { top: 12px; align-self: start; }
-.mock-details { margin: 0 18px 10px; padding: 7px 9px; color: #715a30; background: #faf7f0; border-left: 2px solid #b8a16d; font-size: 11px; line-height: 1.55; }
-.mock-details summary { cursor: pointer; }
-.mock-details p { margin-top: 6px; }
 .transcript-notice { margin: 0 18px 12px; padding: 9px 11px; border-radius: 8px; background: #faf5e9; color: #725a2b; font-size: 12px; }
 .transcript-meta { padding: 0 18px 8px; font-size: 11px; }
 .transcript-list { max-height: calc(100vh - 292px); min-height: 340px; padding: 0 8px 12px 0; margin: 0 8px 0 18px; }
@@ -135,7 +129,7 @@ body { background: var(--bg); }
 .source-note { border-top: 0; }
 .workspace-footer { font-size: 11px; }
 
-/* The empty state explains the workflow without a staged interface mockup. */
+/* Empty state */
 .onboarding { grid-template-columns: minmax(0, 1fr); align-items: start; max-width: 900px; min-height: 0; padding: 70px 20px; }
 .onboarding-copy h1 { margin-top: 8px; color: var(--ink); font-family: var(--font-sans); font-size: 30px; font-weight: 650; letter-spacing: 0; }
 .onboarding-lede { margin: 14px 0 23px; font-size: 14px; line-height: 1.8; color: var(--ink-soft); }
@@ -190,7 +184,6 @@ body { background: var(--bg); }
   .step::after { display: none; }
   .audio-card-ready { padding: 12px 14px; }
   .card-header { padding: 16px 16px 10px; }
-  .mock-details { margin-right: 16px; margin-left: 16px; }
   .transcript-list { min-height: 0; max-height: 440px; margin-left: 14px; }
   .field-list { padding: 0 16px; }
   .source-content { padding: 0 16px 16px; }

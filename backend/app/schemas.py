@@ -234,26 +234,12 @@ class RecordTextOut(BaseModel):
     text: str
 
 
-class DemoCaseOut(BaseModel):
-    key: str
-    title: str
-    description: str
-    audio_filename: str
-    audio_url: str
-    dialogue_preview: str
-
-
-class DemoCaseListOut(BaseModel):
-    items: list[DemoCaseOut]
-
-
 class HealthOut(BaseModel):
     status: str
     asr_provider: str
     asr_is_mock: bool
     draft_provider: str
     draft_is_mock: bool
-    mock_mode: bool
     assistant_provider: str
     assistant_is_mock: bool
     job_worker_enabled: bool

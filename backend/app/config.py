@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -19,10 +20,9 @@ class Settings(BaseSettings):
     app_name: str = "诊录助手 API"
     database_url: str = f"sqlite:///{(PROJECT_ROOT / 'backend' / 'data' / 'zhenlu.db').as_posix()}"
     upload_dir: Path = PROJECT_ROOT / "backend" / "data" / "uploads"
-    sample_data_dir: Path = PROJECT_ROOT / "sample-data"
     max_audio_mb: int = 50
-    asr_provider: str = "mock"
-    draft_provider: str = "mock"
+    asr_provider: Literal["fun-asr"] = "fun-asr"
+    draft_provider: Literal["qwen"] = "qwen"
     fun_asr_base_url: str = "wss://dashscope.aliyuncs.com/api-ws/v1/inference"
     fun_asr_model: str = "fun-asr-realtime-2026-02-28"
     fun_asr_api_key: SecretStr = SecretStr("")
@@ -41,12 +41,11 @@ class Settings(BaseSettings):
     # 留空时不估算费用；单价须与实际模型和地域对应。
     qwen_input_price_per_million: float | None = Field(default=None, ge=0)
     qwen_output_price_per_million: float | None = Field(default=None, ge=0)
-    assistant_provider: str = "mock"
+    assistant_provider: Literal["qwen"] = "qwen"
     dialogue_provider: str = "rules"
     job_worker_enabled: bool = True
     job_poll_interval_seconds: float = Field(default=0.5, ge=0.05, le=30)
     job_lease_seconds: int = Field(default=600, ge=30, le=7200)
-    mock_delay_seconds: float = 0.35
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
     timezone_offset_hours: int = 8
     # 仅由本地连接程序设置；普通开发模式不启用设备流程。
