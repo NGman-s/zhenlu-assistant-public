@@ -10,9 +10,12 @@ from fastapi.testclient import TestClient
 
 from app.config import Settings
 from app.main import create_app
+from tests.support.demo_data import DemoCatalog
+from tests.support.asr import MockTranscriptionProvider
+from tests.support.draft import MockDraftProvider
+from tests.support.assistant import MockAssistantProvider
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-SAMPLE_DATA_DIR = PROJECT_ROOT / "sample-data"
+SAMPLE_DATA_DIR = Path(__file__).resolve().parent / "fixtures"
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -20,16 +23,20 @@ def quiet_http_logs() -> None:
     logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
+@pytest.fixture(autouse=True)
+def test_providers(monkeypatch):
+    catalog = DemoCatalog(SAMPLE_DATA_DIR)
+    monkeypatch.setattr("app.main.build_asr_provider", lambda settings: MockTranscriptionProvider(catalog))
+    monkeypatch.setattr("app.main.build_draft_provider", lambda settings: MockDraftProvider(catalog))
+    monkeypatch.setattr("app.main.build_assistant_provider", lambda settings: MockAssistantProvider())
+
+
 @pytest.fixture
 def settings(tmp_path: Path) -> Settings:
     return Settings(
         _env_file=None,
-        asr_provider="mock",
-        draft_provider="mock",
         database_url=f"sqlite:///{(tmp_path / 'test.db').as_posix()}",
         upload_dir=tmp_path / "uploads",
-        sample_data_dir=SAMPLE_DATA_DIR,
-        mock_delay_seconds=0,
         max_audio_mb=20,
     )
 

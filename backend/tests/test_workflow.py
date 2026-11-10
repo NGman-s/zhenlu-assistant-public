@@ -17,7 +17,7 @@ from app.providers.base import (
     TranscriptDocument,
 )
 
-SAMPLE_DATA_DIR = Path(__file__).resolve().parents[2] / "sample-data"
+SAMPLE_DATA_DIR = Path(__file__).resolve().parent / "fixtures"
 FIELD_KEYS = [
     "chief_complaint",
     "present_illness",
@@ -145,15 +145,9 @@ def test_full_flow_from_mock_audio_to_confirmed_copy(
     client: TestClient, app: FastAPI
 ) -> None:
     health = client.get("/api/health").json()
-    assert health["mock_mode"] is True
+    assert "mock_mode" not in health
     assert health["asr_is_mock"] is True
     assert health["draft_is_mock"] is True
-
-    cases = client.get("/api/demo/cases").json()["items"]
-    assert [case["key"] for case in cases] == ["case-01", "case-02"]
-    assert client.get("/api/demo/cases/case-01/audio").headers["content-type"].startswith(
-        "audio/wav"
-    )
 
     session_id = create_session(client)
     session = client.get(f"/api/sessions/{session_id}").json()
@@ -406,19 +400,15 @@ def test_regeneration_protects_doctor_edits_and_offers_explicit_suggestion(
     assert confirmed.json()["latest_record"]["fields"][0]["sources"][0]["seq"] == 0
 
 
-def test_invalid_sources_are_dropped_by_server(
-    client: TestClient, app: FastAPI
-) -> None:
+def test_invalid_sources_are_rejected_by_server(client: TestClient, app: FastAPI) -> None:
     session_id = create_session(client)
     upload_sample(client, session_id, "case-01")
     start_transcript(client, session_id)
     app.state.draft_provider = InvalidSourceDraftProvider()
-    workspace = start_draft(client, session_id)
-
-    for field in workspace["draft"]["fields"]:
-        assert len(field["sources"]) == 1
-        assert field["sources"][0]["seq"] == 0
-        assert field["sources"][0]["id"] != "does-not-exist"
+    response = client.post(f"/api/sessions/{session_id}/draft")
+    assert response.status_code == 502
+    assert response.json()["code"] == "draft_invalid_response"
+    assert client.get(f"/api/sessions/{session_id}").json()["draft"] is None
 
 
 def test_provider_failure_is_visible_and_retryable(
@@ -543,7 +533,7 @@ def test_save_during_regeneration_is_not_overwritten(client: TestClient, app: Fa
     assert result["draft"]["fields"][0]["value"] == "并发保存"
 
 
-def test_manual_transcript_and_template_workflow(client: TestClient) -> None:
+def test_manual_transcript_and_generated_draft_workflow(client: TestClient) -> None:
     session_id = create_session(client)
     url = f"/api/sessions/{session_id}/transcript/manual"
     assert client.post(url, json={"text": "  \n  "}).status_code == 422
@@ -557,9 +547,12 @@ def test_manual_transcript_and_template_workflow(client: TestClient) -> None:
     assert all(segment["start_ms"] is None and segment["end_ms"] is None for segment in transcript["segments"])
     assert client.post(url, json={"text": "重复"}).status_code == 409
     draft = start_draft(client, session_id)["draft"]
-    assert draft["provider"] == "manual-template"
+    assert draft["provider"] == "mock-rule-based-draft-v1"
+    assert transcript["is_mock"] is False
     assert all(field["value"] == "未提及" and not field["sources"] for field in draft["fields"])
-    assert client.post(f"/api/sessions/{session_id}/draft/regenerate", json={"expected_revision": draft["revision"]}).status_code == 409
+    regenerated = client.post(f"/api/sessions/{session_id}/draft/regenerate", json={"expected_revision": draft["revision"]})
+    assert regenerated.status_code == 200
+    draft = regenerated.json()["draft"]
     saved = client.patch(f"/api/sessions/{session_id}/draft", json={"expected_revision": draft["revision"], "fields": [{"field_key": "chief_complaint", "value": "咳嗽三天"}]})
     assert saved.status_code == 200
     confirmed = client.post(f"/api/sessions/{session_id}/confirm", json={"expected_revision": saved.json()["draft"]["revision"]})

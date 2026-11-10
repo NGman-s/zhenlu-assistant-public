@@ -15,7 +15,7 @@ def read_device_state(path: Path | None) -> dict:
         data = json.loads(path.read_text(encoding="utf-8"))
         timestamp = float(data["heartbeat"])
         connected = data.get("connected") is True and 0 <= time.time() - timestamp <= HEARTBEAT_MAX_AGE
-        mode = data.get("mode") if data.get("mode") in ("simulation", "usb-detection", "identity-prototype") else "unknown"
+        mode = data.get("mode") if data.get("mode") in ("usb-detection", "identity-prototype") else "unknown"
     except (OSError, ValueError, TypeError, KeyError):
         connected, mode = False, "unknown"
     return {"managed": True, "connected": connected, "mode": mode}

@@ -13,11 +13,10 @@ from app.config import PROJECT_ROOT, Settings
 from app.device_state import read_device_state
 from app.database import Database
 from app.errors import setup_exception_handlers
-from app.providers.demo_data import DemoCatalog
 from app.providers.registry import build_asr_provider, build_draft_provider
 from app.providers.assistant import build_assistant_provider
 from app.providers.dialogue import build_dialogue_provider
-from app.routers import assistant, audio, demo, dialogue, drafts, jobs, records, sessions, transcripts
+from app.routers import assistant, audio, dialogue, drafts, jobs, records, sessions, transcripts
 from app.services.job_state import recover_expired, recover_legacy_states
 from app.services.jobs import JobWorker
 from app.schemas import HealthOut
@@ -35,16 +34,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         settings.upload_dir.mkdir(parents=True, exist_ok=True)
-        catalog = DemoCatalog(settings.sample_data_dir)
-        catalog.list()  # 启动时校验模拟数据完整可读
+        app.state.asr_provider = build_asr_provider(settings)
+        app.state.draft_provider = build_draft_provider(settings)
+        app.state.assistant_provider = build_assistant_provider(settings)
+        app.state.dialogue_provider = build_dialogue_provider(settings)
         database = Database(settings.database_url)
         database.create_all()
 
-        app.state.demo_catalog = catalog
-        app.state.asr_provider = build_asr_provider(settings, catalog)
-        app.state.draft_provider = build_draft_provider(settings, catalog)
-        app.state.assistant_provider = build_assistant_provider(settings)
-        app.state.dialogue_provider = build_dialogue_provider(settings)
         app.state.db = database
         with database.session_factory() as db:
             recover_expired(db)
@@ -107,7 +103,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(transcripts.router, prefix="/api")
     app.include_router(drafts.router, prefix="/api")
     app.include_router(records.router, prefix="/api")
-    app.include_router(demo.router, prefix="/api")
     app.include_router(jobs.router, prefix="/api")
     app.include_router(assistant.router, prefix="/api")
     app.include_router(dialogue.router, prefix="/api")
@@ -122,7 +117,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "asr_is_mock": asr_provider.is_mock,
             "draft_provider": draft_provider.name,
             "draft_is_mock": draft_provider.is_mock,
-            "mock_mode": bool(asr_provider.is_mock and draft_provider.is_mock and request.app.state.assistant_provider.is_mock),
             "assistant_provider": request.app.state.assistant_provider.name,
             "assistant_is_mock": request.app.state.assistant_provider.is_mock,
             "job_worker_enabled": settings.job_worker_enabled,

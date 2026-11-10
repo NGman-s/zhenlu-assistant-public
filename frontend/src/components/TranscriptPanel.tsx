@@ -7,7 +7,6 @@ interface TranscriptPanelProps {
   busy: BusyAction;
   highlightIds: string[];
   focusToken: number;
-  asrIsMock: boolean | null;
   onTranscribe: () => void;
   onManualSave: (text: string) => Promise<boolean>;
   onDirtyChange: (dirty: boolean) => void;
@@ -32,7 +31,6 @@ export function TranscriptPanel({
   busy,
   highlightIds,
   focusToken,
-  asrIsMock,
   onTranscribe,
   onManualSave,
   onDirtyChange,
@@ -57,8 +55,6 @@ export function TranscriptPanel({
   }, [focusToken]);
 
   const highlightSet = new Set(highlightIds);
-  const transcribeLabel = asrIsMock === true ? "开始模拟转写" : "开始转写";
-  const transcribeBusyLabel = asrIsMock === true ? "正在模拟转写…" : "正在转写…";
 
   return (
     <section className="card transcript-card">
@@ -69,7 +65,7 @@ export function TranscriptPanel({
             {transcript?.provider === "manual" ? (
               <span className="badge badge-outline">手动录入</span>
             ) : transcript?.is_mock ? (
-              <span className="badge badge-mock">模拟转写</span>
+              <span className="badge badge-history">历史模拟转写</span>
             ) : transcript ? (
               <span className="badge badge-outline">语音识别</span>
             ) : null}
@@ -84,7 +80,7 @@ export function TranscriptPanel({
         <div className="empty-panel">
               <EmptyWaveform />
               <h3>{workspace.audio ? "音频已就绪" : "录入问诊内容"}</h3>
-              <p>{workspace.audio ? "选择示例转写，或手动录入问诊内容。" : "可直接输入问诊文字，也可以先上传音频。"}</p>
+              <p>{workspace.audio ? "开始语音识别，或手动录入问诊内容。" : "可直接输入问诊文字，也可以先上传音频。"}</p>
               {manualOpen ? (
                 <div className="manual-transcript">
                   <label htmlFor="manual-transcript">问诊内容（每行一段）</label>
@@ -122,10 +118,10 @@ export function TranscriptPanel({
                 {busy === "transcribe" ? (
                   <>
                     <span className="spinner" aria-hidden="true" />
-                    {transcribeBusyLabel}
+                    正在转写…
                   </>
                 ) : (
-                  transcribeLabel
+                  "开始转写"
                 )}
               </button> : null}
               <button type="button" className="btn btn-secondary" onClick={() => setManualOpen(true)} disabled={busy !== null}>
@@ -137,10 +133,8 @@ export function TranscriptPanel({
         <>
           {transcript.provider === "manual" ? (
             <p className="transcript-notice">手动录入，未经过语音识别；无音频时间定位。</p>
-          ) : !transcript.is_mock && transcript.notice ? (
+          ) : transcript.notice ? (
             <p className="transcript-notice">{transcript.notice}</p>
-          ) : transcript.is_mock && !transcript.has_reliable_timestamps ? (
-            <p className="transcript-notice">未匹配内置示例，当前显示默认模拟对话。</p>
           ) : null}
 
           <div className="transcript-list" ref={listRef}>

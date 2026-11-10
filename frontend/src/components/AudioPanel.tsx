@@ -1,13 +1,11 @@
 import { useState, type ChangeEvent, type DragEvent } from "react";
-import type { BusyAction, DemoCase, SessionDetail } from "../types";
+import type { BusyAction, SessionDetail } from "../types";
 import { formatFileSize } from "../utils";
 
 interface AudioPanelProps {
   workspace: SessionDetail;
-  demoCases: DemoCase[];
   busy: BusyAction;
   onUpload: (file: File) => void;
-  onLoadDemo: (demoCase: DemoCase) => void;
 }
 
 function AudioGlyph() {
@@ -21,16 +19,14 @@ function AudioGlyph() {
 
 export function AudioPanel({
   workspace,
-  demoCases,
   busy,
   onUpload,
-  onLoadDemo,
 }: AudioPanelProps) {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [dragActive, setDragActive] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
   const audio = workspace.audio;
-  const uploadBusy = busy === "upload" || busy === "demo_upload";
+  const uploadBusy = busy === "upload";
 
   function chooseFile(file: File | null | undefined) {
     if (!file) return;
@@ -159,44 +155,6 @@ export function AudioPanel({
               {localError}
             </p>
           ) : null}
-        </div>
-
-        <div className="sample-column">
-          <div className="sample-column-head">
-            <h3>使用示例音频</h3>
-            {busy === "demo_upload" ? (
-              <span className="inline-loading">
-                <span className="spinner small" aria-hidden="true" />
-                载入中
-              </span>
-            ) : null}
-          </div>
-
-          <div className="sample-list">
-            {demoCases.map((demoCase, index) => (
-              <button
-                type="button"
-                key={demoCase.key}
-                className="sample-case"
-                onClick={() => onLoadDemo(demoCase)}
-                disabled={uploadBusy}
-              >
-                <span className="sample-index">
-                  {String(index + 1).padStart(2, "0")}
-                </span>
-                <span className="sample-copy">
-                  <span className="sample-title">{demoCase.title}</span>
-                </span>
-                <span className="sample-action" aria-hidden="true">
-                  {busy === "demo_upload" ? "…" : "→"}
-                </span>
-              </button>
-            ))}
-            {demoCases.length === 0 ? (
-              <div className="sample-placeholder">示例病例暂不可用，可直接上传本地音频。</div>
-            ) : null}
-          </div>
-
         </div>
       </div>
     </section>

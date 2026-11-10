@@ -34,7 +34,7 @@ def provider_for(app, operation: str):
     return app.state.draft_provider
 
 
-def validate_operation(session, operation: str, payload: dict, provider) -> None:
+def validate_operation(session, operation: str, payload: dict) -> None:
     if operation == "ask":
         assistant_context(session)
         return
@@ -54,8 +54,6 @@ def validate_operation(session, operation: str, payload: dict, provider) -> None
     elif operation == "regenerate":
         if session.draft is None or session.transcript is None:
             raise ApiError(409, "draft_required", "该会话还没有可重新生成的病历草稿。")
-        if session.draft.provider == "manual-template" and provider.is_mock:
-            raise ApiError(409, "manual_draft", "手动填写的模板不支持重新生成。")
         if session.draft.revision != payload["expected_revision"]:
             raise ApiError(409, "revision_conflict", "草稿已更新，请刷新后再重新生成。")
     else:
@@ -102,7 +100,7 @@ def submit_job(db: Session, app, session_id: str, operation: str, payload: dict,
         return existing
     session = get_session_or_404(db, session_id)
     provider = provider_for(app, operation)
-    validate_operation(session, operation, payload, provider)
+    validate_operation(session, operation, payload)
     if db.scalar(select(ProcessingJob.id).where(ProcessingJob.active_session_id == session_id)):
         raise ApiError(409, "operation_in_progress", "该会话已有处理任务，请等待完成或查看任务状态。")
     job = ProcessingJob(
@@ -153,7 +151,7 @@ def run_job(app, job_id: str, *, propagate: bool = False, on_claimed: Callable[[
             provider = provider_for(app, job.operation)
             if provider.name != job.provider:
                 raise ApiError(409, "provider_changed", "任务排队期间模型配置已变化，请重新提交。")
-            validate_operation(session, job.operation, job.payload, provider)
+            validate_operation(session, job.operation, job.payload)
             if input_hash(session, job.operation, job.payload) != job.input_hash:
                 raise ApiError(409, "job_input_changed", "排队期间问诊或病历版本已更新，请重新提交。")
             if job.operation == "transcribe":

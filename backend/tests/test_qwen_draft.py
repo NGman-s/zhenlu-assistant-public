@@ -25,7 +25,8 @@ def provider(handler, model: str = "qwen3.7-plus") -> QwenDraftProvider:
     return QwenDraftProvider("https://example.test/compatible-mode/v1", model, "test-secret", transport=httpx.MockTransport(handler))
 
 
-def test_qwen_text_to_review_and_doctor_edit_protection(client: TestClient) -> None:
+@pytest.mark.parametrize("legacy_manual", [False, True])
+def test_qwen_text_to_review_and_doctor_edit_protection(client: TestClient, legacy_manual: bool) -> None:
     seen = []
     def handler(request: httpx.Request) -> httpx.Response:
         seen.append(request)
@@ -34,6 +35,13 @@ def test_qwen_text_to_review_and_doctor_edit_protection(client: TestClient) -> N
     sid = client.post("/api/sessions", json={"patient_name": "虚构称呼"}).json()["id"]
     saved = client.post(f"/api/sessions/{sid}/transcript/manual", json={"text": "患者咳嗽三天。"})
     assert saved.status_code == 200 and saved.json()["audio"] is None
+    assert saved.json()["transcript"]["is_mock"] is False
+    if legacy_manual:
+        from app.models import Transcript
+        with client.app.state.db.session_factory() as db:
+            transcript = db.get(Transcript, saved.json()["transcript"]["id"])
+            transcript.is_mock = True
+            db.commit()
     generated = client.post(f"/api/sessions/{sid}/draft")
     assert generated.status_code == 200, generated.text
     draft = generated.json()["draft"]
@@ -52,7 +60,8 @@ def test_qwen_text_to_review_and_doctor_edit_protection(client: TestClient) -> N
     assert regenerated["draft"]["fields"][0]["value"] == "医生更正"
     assert regenerated["draft"]["fields"][0]["suggestion"]["value"] == "咳嗽三天"
     confirmed = client.post(f"/api/sessions/{sid}/confirm", json={"expected_revision": regenerated["draft"]["revision"]}).json()
-    assert "仅供演示" in confirmed["latest_record"]["text"]
+    assert "已经医生审核确认" in confirmed["latest_record"]["text"]
+    assert "模拟" not in confirmed["latest_record"]["text"]
 
 
 def test_failure_and_invalid_source_preserve_existing_draft(client: TestClient) -> None:

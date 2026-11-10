@@ -1,6 +1,4 @@
 import type {
-  DemoCase,
-  DemoCaseListResponse,
   SessionDetail,
   SessionListResponse,
 } from "./types";
@@ -72,15 +70,6 @@ function jsonInit(method: string, body: unknown): RequestInit {
 
 export function listSessions(signal?: AbortSignal): Promise<SessionListResponse> {
   return request<SessionListResponse>("/sessions", { signal });
-}
-
-export interface HealthStatus {
-  asr_is_mock: boolean;
-  draft_is_mock: boolean;
-}
-
-export function getHealth(signal?: AbortSignal): Promise<HealthStatus> {
-  return request<HealthStatus>("/health", { signal });
 }
 
 export function getSession(
@@ -161,21 +150,4 @@ export function confirmDraft(
     `/sessions/${encodeURIComponent(sessionId)}/confirm`,
     jsonInit("POST", { expected_revision: expectedRevision }),
   );
-}
-
-export function listDemoCases(signal?: AbortSignal): Promise<DemoCaseListResponse> {
-  return request<DemoCaseListResponse>("/demo/cases", { signal });
-}
-
-export async function fetchDemoAudio(demoCase: DemoCase): Promise<Blob> {
-  let response: Response;
-  try {
-    response = await fetch(`${API_BASE}/demo/cases/${encodeURIComponent(demoCase.key)}/audio`);
-  } catch {
-    throw new ApiRequestError("无法加载示例音频，请检查后端服务。", 0, "network_error");
-  }
-  if (!response.ok) {
-    throw await parseError(response);
-  }
-  return await response.blob();
 }

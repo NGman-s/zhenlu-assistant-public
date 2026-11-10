@@ -17,16 +17,13 @@ interface DraftPanelProps {
   onConfirm: (expectedRevision: number) => Promise<boolean>;
   onCopy: () => Promise<void>;
   onDirtyChange: (dirty: boolean) => void;
-  draftIsMock: boolean | null;
 }
 
 function DraftEmpty({
   workspace,
   busy,
   onGenerate,
-  draftIsMock,
-}: Pick<DraftPanelProps, "workspace" | "busy" | "onGenerate" | "draftIsMock">) {
-  const manualTemplate = workspace.transcript?.provider === "manual" && draftIsMock === true;
+}: Pick<DraftPanelProps, "workspace" | "busy" | "onGenerate">) {
   return (
     <section className="card draft-card">
       <header className="card-header">
@@ -42,7 +39,7 @@ function DraftEmpty({
         {workspace.transcript ? (
           <>
             <h3>问诊内容已就绪</h3>
-            <p>{manualTemplate ? "创建模板后，请根据问诊内容逐项填写。" : draftIsMock === false ? "生成时会将问诊文字发送到已配置的模型服务。" : "可以生成病历草稿，请核对所有内容。"}</p>
+            <p>生成时会将问诊文字发送到已配置的模型服务。</p>
             <button
               type="button"
               className="btn btn-primary"
@@ -55,7 +52,7 @@ function DraftEmpty({
                   正在生成草稿…
                 </>
               ) : (
-                manualTemplate ? "创建病历模板" : draftIsMock === true ? "生成结构化草稿（模拟）" : "生成病历草稿"
+                "生成病历草稿"
               )}
             </button>
           </>
@@ -85,7 +82,6 @@ function DraftEditor({
   onConfirm,
   onCopy,
   onDirtyChange,
-  draftIsMock,
 }: DraftEditorProps) {
   const [values, setValues] = useState<Record<string, string>>(() =>
     Object.fromEntries(draft.fields.map((field) => [field.key, field.value])),
@@ -103,7 +99,6 @@ function DraftEditor({
   }, [draft.id, draft.revision]);
 
   const confirmed = draft.status === "confirmed";
-  const manualTemplate = draft.provider === "manual-template";
   const anyBusy = busy !== null;
   const dirtyFields = draft.fields.filter(
     (field) => (values[field.key] ?? "").trim() !== field.value,
@@ -162,7 +157,9 @@ function DraftEditor({
         <div>
           <div className="heading-row">
             <h2>病历草稿</h2>
-            {manualTemplate ? <span className="badge badge-outline">手动填写</span> : draft.provider.startsWith("qwen:") ? <span className="badge badge-outline">AI 草稿</span> : draft.is_mock ? <span className="badge badge-mock">模拟草稿</span> : null}
+            <span className={`badge ${draft.is_mock ? "badge-history" : "badge-outline"}`}>
+              {draft.is_mock ? "含历史模拟内容" : "AI 草稿"}
+            </span>
             {draft.has_doctor_edits ? (
               <span className="badge badge-doctor">含医生修改</span>
             ) : null}
@@ -189,7 +186,6 @@ function DraftEditor({
         </div>
       ) : null}
 
-      {manualTemplate && !confirmed ? <p className="transcript-notice">这是待填写模板，不会自动提取内容。请逐项核对“未提及”并手动填写。</p> : null}
       <div className="field-list">
         {draft.fields.map((field) => {
           const fieldDirty =
@@ -273,7 +269,7 @@ function DraftEditor({
                 </div>
               ) : null}
 
-              {!manualTemplate && field.origin === "doctor" && field.ai_value !== field.value ? (
+              {field.origin === "doctor" && field.ai_value !== field.value ? (
                 <details className="ai-original">
                   <summary>查看系统原始草稿</summary>
                   <p>{field.ai_value}</p>
@@ -314,7 +310,7 @@ function DraftEditor({
           </div>
 
           <div className="draft-actions">
-            {!manualTemplate || draftIsMock === false ? <button
+            <button
               type="button"
               className="btn btn-ghost"
               onClick={() => setDialog("regenerate")}
@@ -327,9 +323,9 @@ function DraftEditor({
                   正在重生成…
                 </>
               ) : (
-                draftIsMock === true ? "重新生成（模拟）" : "重新生成"
+                "重新生成"
               )}
-            </button> : null}
+            </button>
             <button
               type="button"
               className="btn btn-secondary"
@@ -417,7 +413,7 @@ function DraftEditor({
       {dialog === "regenerate" ? (
         <Modal
           title="重新生成草稿"
-          subtitle={draftIsMock === false ? "将问诊文字发送至模型服务，并根据字段来源决定是否更新。" : "系统会再次生成草稿，并根据字段来源决定是否更新。"}
+          subtitle="将问诊文字发送至模型服务，并根据字段来源决定是否更新。"
           onClose={() => setDialog(null)}
           closeDisabled={busy === "regenerate"}
           footer={
@@ -458,7 +454,6 @@ export function DraftPanel(props: DraftPanelProps) {
         workspace={workspace}
         busy={props.busy}
         onGenerate={props.onGenerate}
-        draftIsMock={props.draftIsMock}
       />
     );
   }

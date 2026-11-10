@@ -12,7 +12,7 @@ def test_existing_sqlite_records_survive_text_input_migration(settings: Settings
     app = create_app(settings)
     with TestClient(app) as client:
         sid = client.post('/api/sessions', json={'patient_name': '虚构病例'}).json()['id']
-        audio = Path(__file__).resolve().parents[2] / 'sample-data' / 'mock-consultation-case-01.wav'
+        audio = Path(__file__).resolve().parent / 'fixtures' / 'mock-consultation-case-01.wav'
         with audio.open('rb') as f:
             assert client.post(f'/api/sessions/{sid}/audio', files={'file': (audio.name, f, 'audio/wav')}).status_code == 201
         assert client.post(f'/api/sessions/{sid}/transcript').status_code == 200

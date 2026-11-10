@@ -2,12 +2,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+from pydantic import ValidationError
+
 from fastapi.testclient import TestClient
 
 from app.config import Settings
 from app.main import create_app
 
-SAMPLE_DATA_DIR = Path(__file__).resolve().parents[2] / "sample-data"
 TINY_WAV = b"RIFF\x00\x00\x00\x00WAVEfmt "
 
 
@@ -28,7 +30,7 @@ def test_validation_and_not_found_errors(client: TestClient) -> None:
 
     response = client.get("/api/demo/cases/not-a-case/audio")
     assert response.status_code == 404
-    assert response.json()["code"] == "demo_case_not_found"
+    assert response.json()["code"] == "http_error"
 
 
 def test_processing_order_errors(client: TestClient) -> None:
@@ -124,12 +126,8 @@ def test_upload_validation_and_duplicate_audio(client: TestClient) -> None:
 def test_oversized_audio_is_rejected(tmp_path: Path) -> None:
     settings = Settings(
         _env_file=None,
-        asr_provider="mock",
-        draft_provider="mock",
         database_url=f"sqlite:///{(tmp_path / 'large.db').as_posix()}",
         upload_dir=tmp_path / "uploads",
-        sample_data_dir=SAMPLE_DATA_DIR,
-        mock_delay_seconds=0,
         max_audio_mb=0,
     )
     app = create_app(settings)
@@ -142,3 +140,24 @@ def test_oversized_audio_is_rejected(tmp_path: Path) -> None:
         assert response.status_code == 413
         assert response.json()["code"] == "audio_too_large"
         assert "0 MB" in response.json()["message"]
+
+
+@pytest.mark.parametrize("provider", ["asr_provider", "draft_provider", "assistant_provider"])
+def test_runtime_rejects_removed_mock_providers(provider: str) -> None:
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, **{provider: "mock"})
+
+
+def test_default_provider_factories_build_cloud_services() -> None:
+    from app.providers.registry import build_asr_provider, build_draft_provider
+    from app.providers.assistant import build_assistant_provider
+
+    settings = Settings(
+        _env_file=None,
+        qwen_base_url="https://example.test/v1",
+        qwen_api_key="test-key",
+        fun_asr_api_key="test-key",
+    )
+    assert build_asr_provider(settings).name.startswith("fun-asr:")
+    assert build_draft_provider(settings).name.startswith("qwen:")
+    assert build_assistant_provider(settings).name.startswith("qwen-assistant:")

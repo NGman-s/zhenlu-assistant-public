@@ -4,9 +4,9 @@ import time
 import hashlib
 from pathlib import Path
 
-from app.constants import MOCK_ASR_NOTICE
+from tests.support import MOCK_ASR_NOTICE
 from app.providers.base import AsrResult, AsrSegment
-from app.providers.demo_data import DemoCatalog
+from tests.support.demo_data import DemoCatalog
 
 
 class MockTranscriptionProvider:

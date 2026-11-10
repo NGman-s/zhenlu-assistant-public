@@ -10,7 +10,6 @@ from app.config import Settings
 from app.constants import (
     FIELD_DEFINITIONS,
     FIELD_KEYS,
-    UNMENTIONED,
     DraftStatus,
     FieldOrigin,
     SessionStatus,
@@ -32,7 +31,7 @@ from app.providers.base import (
     TranscriptionProvider,
 )
 from app.providers.fun_asr import AsrProviderError
-from app.providers.qwen_draft import DraftProviderError
+from app.providers.qwen_draft import DraftProviderError, _parse_fields
 from app.schemas import DraftUpdate
 from app.serializers import segment_dict
 from app.services.audio_service import resolve_audio_path
@@ -64,30 +63,17 @@ def _mark_failed(db: Session, session: ConsultationSession, message: str) -> Non
 def _normalized_generated_fields(
     result: DraftResult, valid_segment_ids: set[str]
 ) -> dict[str, tuple[str, str, list[str]]]:
-    if not result.is_mock:
-        from app.providers.qwen_draft import _parse_fields
-        try:
-            _parse_fields({"fields": [
-                {"key": field.key, "value": field.value, "source_segment_ids": list(field.source_segment_ids)}
-                for field in result.fields
-            ]}, valid_segment_ids)
-        except (ValueError, TypeError):
-            raise ApiError(502, "draft_invalid_response", "模型返回格式或来源无效，请重试。", metrics=result.metadata) from None
-    generated_by_key = {}
-    for field in result.fields:
-        generated_by_key.setdefault(field.key, field)
-
-    normalized: dict[str, tuple[str, str, list[str]]] = {}
-    for key, label in FIELD_DEFINITIONS:
-        generated = generated_by_key.get(key)
-        value = (generated.value.strip() if generated else "") or UNMENTIONED
-        source_ids: list[str] = []
-        if value != UNMENTIONED and generated is not None:
-            for segment_id in generated.source_segment_ids:
-                if segment_id in valid_segment_ids and segment_id not in source_ids:
-                    source_ids.append(segment_id)
-        normalized[key] = (label, value, source_ids)
-    return normalized
+    try:
+        fields = _parse_fields({"fields": [
+            {"key": field.key, "value": field.value, "source_segment_ids": list(field.source_segment_ids)}
+            for field in result.fields
+        ]}, valid_segment_ids)
+    except (ValueError, TypeError):
+        raise ApiError(502, "draft_invalid_response", "模型返回格式或来源无效，请重试。", metrics=result.metadata) from None
+    return {
+        field.key: (field.label, field.value, list(field.source_segment_ids))
+        for field in fields
+    }
 
 
 def _clear_suggestion(field: DraftField) -> None:
@@ -211,7 +197,7 @@ def create_manual_transcript(db: Session, session_id: str, text: str) -> Consult
     transcript = Transcript(
         id=new_id(), session_id=session.id,
         audio_file_id=session.audio_file.id if session.audio_file else None,
-        provider="manual", is_mock=True, language="zh-CN",
+        provider="manual", is_mock=False, language="zh-CN",
         notice="问诊内容由用户手动录入，未经过语音识别；无音频时间定位。",
     )
     for seq, line in enumerate(line.strip() for line in text.splitlines() if line.strip()):
@@ -252,13 +238,7 @@ def generate_draft(
     db.commit()
 
     try:
-        if transcript.provider == "manual" and provider.is_mock:
-            result = DraftResult(
-                fields=(), provider="manual-template", is_mock=True,
-                notice="空白模板：请根据问诊内容自行填写并核对。",
-            )
-        else:
-            result = provider.generate(document)
+        result = provider.generate(document)
     except DraftProviderError as exc:
         logger.warning("Draft provider failed for session %s: %s", session.id, exc.code)
         if job_id is None:
@@ -373,8 +353,6 @@ def regenerate_draft(
     draft = session.draft
     if draft is None or session.transcript is None:
         raise ApiError(409, "draft_required", "该会话还没有可重新生成的病历草稿。")
-    if draft.provider == "manual-template" and provider.is_mock:
-        raise ApiError(409, "manual_draft", "手动填写的模板不支持重新生成。")
     if draft.revision != payload_revision:
         raise ApiError(
             409,
@@ -478,7 +456,9 @@ def confirm_draft(
     text = build_record_text(
         session=session,
         fields=snapshot_fields,
-        is_mock=draft.is_mock or session.transcript.is_mock,
+        is_mock=draft.is_mock or (
+            session.transcript.is_mock and session.transcript.provider != "manual"
+        ),
         confirmed_at=confirmed_at,
         timezone_offset_hours=settings.timezone_offset_hours,
     )

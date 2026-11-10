@@ -62,7 +62,7 @@ export function Sidebar({
           ) : sessions.length === 0 ? (
             <div className="session-empty">
               <p>还没有会话</p>
-              <span>点击上方按钮开始一次虚构病例演示。</span>
+              <span>点击上方按钮开始记录问诊。</span>
             </div>
           ) : (
             sessions.map((session) => {
@@ -98,9 +98,9 @@ export function Sidebar({
       </div>
 
       <div className="sidebar-footer">
-        <div className="mock-mode-pill">
+        <div className="workspace-mode-pill">
           <span className="pill-dot" aria-hidden="true" />
-          虚构病例演示
+          医生审核后确认
         </div>
       </div>
     </aside>
