@@ -1,0 +1,23 @@
+menu "诊录助手-音频回传"
+
+    config SEG_TX_STREAM
+        bool "连续流模式（配合 desktop/recorder.py）"
+        default y
+        help
+            开启后不再按 VAD 段打包发送，而是把采音连续不断地按 100 ms 分块发出：
+                CHK <绝对采样> <base64>
+            同时用 TURN / SESSION_START / SESSION_END 输出分段和会话事件。
+            桌面端据此边收边写 WAV，一次上传整场对话，避免逐句上传导致
+            云端识别丢失上下文。
+
+            关闭则退回旧的段模式（SEG/AUD/END），供 tools/serial/recv_segments.py 调试用。
+
+    config SEG_TX_RING_SECONDS
+        int "环形缓冲长度（秒）"
+        default 60
+        range 10 600
+        help
+            连续流模式下用于吸收发送抖动的缓冲。台面上若发现 DROP 行，
+            说明桌面端读得太慢，可适当加大。
+
+endmenu

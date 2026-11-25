@@ -1,0 +1,68 @@
+menu "诊录助手-端点检测（VAD）"
+
+    config VAD_ENTER_DB
+        int "起段门限：噪声底 + N dB"
+        default 9
+        range 3 30
+        help
+            帧能量高于「噪声底 + N dB」才认为开始说话。
+            环境吵就调大，说话轻就调小。
+
+    config VAD_EXIT_DB
+        int "收尾门限：噪声底 + N dB"
+        default 6
+        range 1 29
+        help
+            低于此值开始累计静音。必须小于起段门限，两者差值就是滞回宽度。
+            差值太小会拖长尾巴，差值太大会把一句话切碎。
+
+    config VAD_HANG_MS
+        int "静音挂起时间（毫秒）"
+        default 280
+        range 100 2000
+        help
+            静音持续超过这个时间才结束一段。说话中间的自然停顿应短于它。
+
+    config VAD_PRE_MS
+        int "段首回退（毫秒）"
+        default 300
+        range 0 1000
+        help
+            起点往前多留一段，避免吃掉第一个字的声母。
+
+    config VAD_GUARD_MS
+        int "段尾保护（毫秒）"
+        default 100
+        range 0 500
+
+    config VAD_MIN_MS
+        int "最短语音段（毫秒）"
+        default 200
+        range 0 2000
+        help
+            短于这个长度的段直接丢弃，滤掉咳嗽、碰桌子之类的短促声。
+
+    config VAD_MAX_MS
+        int "单段最长时长（毫秒）"
+        default 30000
+        range 2000 120000
+        help
+            超过这个长度就强制切段。不能超过 PSRAM 环形缓冲的长度（默认 60 秒），
+            否则段音频会被环形缓冲覆盖，发出去的音频和段表对不上。
+
+    config VAD_PEAK_OPEN
+        int "起段最小峰值"
+        default 500
+        range 0 32767
+        help
+            除了能量门限，还要求帧内峰值达到这个绝对值才起段。
+            宿舍/教室这种底噪起伏大的环境，用它挡掉低电平的干扰。
+
+    config VAD_PEAK_ACTIVE
+        int "维持段最小峰值"
+        default 400
+        range 0 32767
+        help
+            段进行中，低于这个峰值的帧不算语音，避免底噪把段一直续着。
+
+endmenu

@@ -21,6 +21,10 @@ docs/*
 !docs/实时会诊助手模块方案.md
 !docs/realtime-api.md
 !docs/guidance-api.md
+!docs/device-audio.md
+!docs/hardware.md
+!docs/demo.md
+!docs/metrics.md
 
 # 本地数据（数据库与上传音频，不提交）
 backend/data/*
@@ -41,6 +45,15 @@ frontend/.vite/
 # 本地验证产物
 .tmp/
 .playwright-cli/
+
+# 设备侧（本地录音与心跳文件）
+desktop/recordings/
+device-state.json
+
+# ESP-IDF 构建产物与本地配置
+firmware/**/build/
+firmware/**/sdkconfig
+firmware/**/sdkconfig.old
 
 # 编辑器与系统
 .vscode/

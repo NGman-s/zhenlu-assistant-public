@@ -1,0 +1,28 @@
+menu "诊录助手 · 采音配置"
+
+    config AUDIO_IN_I2S_BCLK
+        int "I2S BCLK GPIO 编号"
+        default 5
+        help
+            数字 MEMS 麦克风的位时钟引脚。
+
+    config AUDIO_IN_I2S_WS
+        int "I2S WS（LRCK）GPIO 编号"
+        default 4
+        help
+            声道选择／帧同步引脚。
+
+    config AUDIO_IN_I2S_DIN
+        int "I2S DIN（麦克风数据）GPIO 编号"
+        default 6
+        help
+            麦克风数据输出，接 ESP32 的 I2S 数据输入。
+
+    config AUDIO_IN_GAIN_DB
+        int "固定数字增益（dB）"
+        range 0 18
+        default 0
+        help
+            出厂标定值。不要用自动增益：AGC 会破坏 VAD 的噪声底跟踪。
+
+endmenu
